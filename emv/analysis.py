@@ -20,7 +20,7 @@ CANDIDATES = (EMEANS, EMEANS_PP)
 RAW_KEYS = ["dataset", "seed", "repeat", "algorithm", "passes", "init", "run_index",
             "block_position", "seconds", "cpu_seconds", "main_thread_cpu_seconds",
             "loadavg_1m", "train_mse", "test_mse", "empty_clusters",
-            "batch_size", "alpha0", "batch_law", "splits"]
+            "batch_size", "alpha0", "batch_law", "splits", "unused_threshold"]
 
 
 def write_csv(path: Path, rows: list[dict], keys: list[str] | None = None) -> None:
@@ -58,6 +58,22 @@ def _median_opt(members, key, ndigits):
     return round(float(np.median(np.asarray(vals, dtype=np.float64))), ndigits) if vals else ""
 
 
+CONTENTION_MAIN_CPU_PER_WALL = 0.95
+
+
+def is_contended(row: dict) -> bool | None:
+    """True if the main thread was off-CPU for >5% of the run's wall time.
+
+    The training thread never sleeps or does I/O, so main-thread CPU time below
+    95% of wall time means it was descheduled (another process took the core).
+    None when the row has no diagnostics (older results).
+    """
+    main, wall = row.get("main_thread_cpu_seconds"), row.get("seconds")
+    if main in (None, "") or not wall or float(wall) <= 0:
+        return None
+    return float(main) / float(wall) < CONTENTION_MAIN_CPU_PER_WALL
+
+
 def timing_diagnostics(rows: list[dict]) -> list[dict]:
     """Per algorithm: median CPU/wall ratios and load average over all runs."""
     out = []
@@ -75,6 +91,7 @@ def timing_diagnostics(rows: list[dict]) -> list[dict]:
             "median_main_thread_cpu_per_wall": round(float(np.median(main)), 3),
             "median_loadavg_1m": round(float(np.median(load)), 2) if load else "",
             "max_loadavg_1m": round(max(load), 2) if load else "",
+            "contended_runs": sum(bool(is_contended(r)) for r in rs),
         })
     return out
 
@@ -185,6 +202,9 @@ def _compare_one(rows, ds, dataset, base_alg, km, base, baseline_niter, toleranc
         "threshold_test_mse": round(threshold, 8),
         "baseline_median_seconds": base["median_seconds"],
         "emeans_reached": best is not None,
+        "emeans_min_passes_reached": min(s["passes"] for s in reached) if reached else "",
+        "emeans_min_passes_median_empty_clusters": (
+            min(reached, key=lambda s: s["passes"])["median_empty_clusters"] if reached else ""),
         "emeans_best_passes": best["passes"] if best else "",
         "emeans_best_median_seconds": best["median_seconds"] if best else "",
         "emeans_best_median_test_mse": best["median_test_mse"] if best else "",
@@ -232,7 +252,9 @@ def _diagnostics_section(m: dict, diagnostics: list[dict] | None) -> list[str]:
         "CPU 時間 / 経過時間 の中央値（プロセス全体・メインスレッド）と、各実行直前の 1 分ロードアベレージ"
         "（本プロセス自身のスレッドを含む）。他の回と比べて経過時間だけが伸び、CPU 時間/経過時間 が下がっていれば"
         "CPU の取り合い（待ち）、比が変わらず時間全体が伸びていればコア自体の遅さ（コア種別・クロック）を示唆する。"
-        "WSL2 内では CPU クロックは観測できない。",
+        "WSL2 内では CPU クロックは観測できない。"
+        f"「取り合い検出」= メインスレッドの CPU 時間が経過時間の {CONTENTION_MAIN_CPU_PER_WALL:.0%} 未満だった実行"
+        "（学習スレッドは I/O や sleep をしないため、他プロセスに CPU を奪われていたことを示す）。",
         "",
         f"- ロードアベレージ（1/5/15 分） 開始時: {m.get('loadavg_start')}  / 終了時: {m.get('loadavg_end')}",
         "",
@@ -241,9 +263,49 @@ def _diagnostics_section(m: dict, diagnostics: list[dict] | None) -> list[str]:
             ("median_process_cpu_per_wall", "プロセスCPU/経過"),
             ("median_main_thread_cpu_per_wall", "メインスレッドCPU/経過"),
             ("median_loadavg_1m", "load 1m 中央値"), ("max_loadavg_1m", "load 1m 最大"),
+            ("contended_runs", "取り合い検出数"),
         ]),
         "",
     ]
+
+
+TIME_COLUMNS = {
+    "baseline_median_seconds", "emeans_best_passes", "emeans_best_median_seconds",
+    "emeans_best_median_empty_clusters", "speedup_vs_baseline", "kmeans_fastest_median_seconds",
+    "speedup_vs_fastest_kmeans", "per_seed_speedup_median", "per_seed_speedup_min",
+    "per_seed_speedup_max", "median_seconds", "min_seconds", "max_seconds", "cv_seconds",
+}
+
+
+def _cols(m: dict, cols: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Drop time-derived columns from report tables in quality-only runs."""
+    if m.get("quality_only"):
+        return [c for c in cols if c[0] not in TIME_COLUMNS]
+    return cols
+
+
+def _comparison_intro(m: dict) -> list[str]:
+    if m.get("quality_only"):
+        return [f"判定規則: {m['quality_rule']}。到達しなかった場合は **NO** と記録する。",
+                "「最少到達エポック」は閾値に達した最も少ない e-means エポック数（時間に依存しない）。"]
+    return [
+        f"判定規則: {m['quality_rule']}。到達しなかった場合は **NO** と記録し、倍率は算出しない。",
+        "到達判定は test MSE のみに基づく。到達構成に空クラスタが残る場合は品質上の注意が必要（`到達構成の空クラスタ` 列）。\n"
+        "`speedup_vs_fastest_kmeans` は、基準と同じ手法（同じ初期化）の k-means が同じ閾値に達する最短反復数との比較（保守的な倍率）。",
+    ]
+
+
+def _banners(m: dict, diagnostics: list[dict] | None) -> list[str]:
+    out = []
+    if m.get("quality_only"):
+        out += ["> **品質専用の計測**: 他の作業と並行して実行しており、時間は速度の評価に使わない。"
+                "表からも時間・倍率の列を除いている（生データには記録あり）。", ""]
+    contended = sum(d.get("contended_runs", 0) for d in diagnostics or [])
+    if contended and not m.get("quality_only"):
+        total = sum(d["runs"] for d in diagnostics)
+        out += [f"> **注意: {contended}/{total} 回の実行で CPU の取り合いを検出した**"
+                "（「計時の診断」参照）。時間・倍率の信頼性が低い。静かな環境で再計測すること。", ""]
+    return out
 
 
 def render_report(metadata: dict, summaries: list[dict], comparisons: list[dict],
@@ -257,6 +319,7 @@ def render_report(metadata: dict, summaries: list[dict], comparisons: list[dict]
         "> 本レポートは `benchmark.py` の実測値のみから自動生成されています。"
         "CPU上の独立ベンチマークであり、論文のGPU実験（H100, Flash-KMeans比較）の再現ではありません。",
         "",
+        *_banners(m, diagnostics),
         "## 実行条件",
         "",
         f"- プロファイル: `{m['profile']}` (ntrain={s['ntrain']}, ntest={s['ntest']}, "
@@ -267,6 +330,9 @@ def render_report(metadata: dict, summaries: list[dict], comparisons: list[dict]
         f"- スレッド数: {m['threads']} (CPU: {m.get('cpu_model', 'unknown')}, "
         f"論理コア {m.get('cpu_count')})",
         f"- Faiss k-means 反復数: {m['kmeans_niters']}  / e-means エポック数: {m['emeans_epochs']}",
+        f"- e-means 設定: batch_law=`{m.get('emeans_batch_law', 'auto')}`, "
+        f"unused_threshold=`{m.get('emeans_unused_threshold')}`（None = 公式デフォルト）"
+        f"  / imbalanced の指数: {m.get('imbalance_exponent', 1.3)}",
         f"- faiss-cpu {m['faiss_version']}, numpy {m['numpy_version']}, Python {m['python_version']}",
         f"- 公式ソース: facebookresearch/faiss @ `{src.get('faiss_source_sha', '?')}` "
         f"(固定SHAと一致: {src.get('faiss_source_matches_pin')}, "
@@ -274,23 +340,23 @@ def render_report(metadata: dict, summaries: list[dict], comparisons: list[dict]
         f"- 実行日時: {m.get('started_at')}  / 本リポジトリ commit: `{m.get('repo_commit')}`"
         f"{' (dirty)' if m.get('repo_dirty') else ''}",
         "",
-        "## 同等品質到達時間による比較",
+        "## 同等品質到達の判定" if m.get("quality_only") else "## 同等品質到達時間による比較",
         "",
-        f"判定規則: {m['quality_rule']}。到達しなかった場合は **NO** と記録し、倍率は算出しない。",
-        "到達判定は test MSE のみに基づく。到達構成に空クラスタが残る場合は品質上の注意が必要（`到達構成の空クラスタ` 列）。\n"
-        "`speedup_vs_fastest_kmeans` は、基準と同じ手法（同じ初期化）の k-means が同じ閾値に達する最短反復数との比較（保守的な倍率）。",
+        *_comparison_intro(m),
         "基準 `faiss_kmeans` は Faiss 既定のランダム初期化、`faiss_kmeans_pp` は k-means++ 初期化（初期化時間も学習時間に含む）。"
         "`e_means` は公式デフォルトの初期化、`e_means_pp` は `faiss_kmeans_pp` と同一の k-means++ 初期重心から開始（初期化時間を含む）。"
         "以下の列名の emeans_* は、この行の e-means 初期化（candidate）を指す。",
         "",
-        _table(comparisons, [
+        _table(comparisons, _cols(m, [
             ("dataset", "dataset"),
             ("baseline", "基準"),
             ("candidate", "e-means 初期化"),
             ("baseline_median_test_mse", "基準 test MSE"),
             ("baseline_median_seconds", "基準 秒"),
             ("emeans_reached", "e-means 到達"),
-            ("emeans_best_passes", "到達エポック"),
+            ("emeans_min_passes_reached", "最少到達エポック"),
+            ("emeans_min_passes_median_empty_clusters", "その空クラスタ"),
+            ("emeans_best_passes", "最速到達エポック"),
             ("emeans_best_median_seconds", "e-means 秒"),
             ("emeans_best_median_empty_clusters", "到達構成の空クラスタ"),
             ("speedup_vs_baseline", "倍率 (vs 基準)"),
@@ -301,27 +367,29 @@ def render_report(metadata: dict, summaries: list[dict], comparisons: list[dict]
             ("per_seed_speedup_median", "シード別倍率 中央値"),
             ("per_seed_speedup_min", "最小"),
             ("per_seed_speedup_max", "最大"),
-        ]),
+        ])),
         "",
         "## 構成別の集計（シード×反復の中央値とばらつき）",
         "",
-        _table(summaries, [
+        _table(summaries, _cols(m, [
             ("dataset", "dataset"), ("algorithm", "algorithm"), ("passes", "passes"),
             ("runs", "runs"), ("median_seconds", "秒 中央値"), ("min_seconds", "秒 min"),
             ("max_seconds", "秒 max"), ("cv_seconds", "秒 CV"),
             ("median_train_mse", "train MSE"), ("median_test_mse", "test MSE"),
             ("min_test_mse", "test min"), ("max_test_mse", "test max"),
             ("median_empty_clusters", "空クラスタ 中央値"), ("max_empty_clusters", "空 max"),
-        ]),
+        ])),
         "",
         *_diagnostics_section(metadata, diagnostics),
         "## 注意事項",
         "",
-        "- 時間は `train()` 呼び出しのみ（`time.perf_counter`）。データ生成・評価は含まない。",
+        *([] if m.get("quality_only") else
+          ["- 時間は `train()` 呼び出しのみ（`time.perf_counter`）。データ生成・評価は含まない。"]),
         "- MSE は全アルゴリズム共通の厳密 `faiss.knn`（二乗L2）で最終重心に再割当てして算出。"
         "e-means の train() が返すラベルは使用していない。",
-        "- e-means の学習時間には、公式デフォルト（`capture_assignments=True`）による最終エポックのラベル保存コストが含まれる。",
-        "- 小規模データでは Python のオーバーヘッドの比率が大きく、倍率は規模に強く依存し得る。",
+        *([] if m.get("quality_only") else [
+            "- e-means の学習時間には、公式デフォルト（`capture_assignments=True`）による最終エポックのラベル保存コストが含まれる。",
+            "- 小規模データでは Python のオーバーヘッドの比率が大きく、倍率は規模に強く依存し得る。"]),
         "- シード数が少ない場合、中央値・min/max は参考値として扱うこと。",
         "",
     ]

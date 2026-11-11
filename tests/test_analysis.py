@@ -118,3 +118,24 @@ def test_timing_diagnostics_and_old_csv_compat():
     assert d["median_process_cpu_per_wall"] == 0.5 and d["median_main_thread_cpu_per_wall"] == 0.25
     s = {x["algorithm"]: x for x in analysis.summarize(rows)}
     assert s["faiss_kmeans"]["median_cpu_seconds"] == "" and s["e_means"]["median_cpu_seconds"] == 1.0
+
+
+def test_contention_flag():
+    base = dict(row("d", 0, "e_means", 1, 1.0, 1.0), cpu_seconds=4.0, loadavg_1m=1.0)
+    assert analysis.is_contended(dict(base, main_thread_cpu_seconds=0.99)) is False
+    assert analysis.is_contended(dict(base, main_thread_cpu_seconds=0.80)) is True
+    assert analysis.is_contended(dict(base, main_thread_cpu_seconds=None)) is None
+    (d,) = analysis.timing_diagnostics([dict(base, main_thread_cpu_seconds=0.8),
+                                        dict(base, main_thread_cpu_seconds=1.0)])
+    assert d["contended_runs"] == 1
+    md = {"quality_only": False}
+    assert "CPU の取り合いを検出" in "".join(analysis._banners(md, [d]))
+    assert analysis._banners(md, [dict(d, contended_runs=0)]) == []
+
+
+def test_min_passes_reached_is_time_independent():
+    rows = [row("d", 0, "faiss_kmeans", 25, 10.0, 1.0),
+            row("d", 0, "e_means", 2, 5.0, 1.0),     # reaches, slower
+            row("d", 0, "e_means", 3, 1.0, 1.0)]     # reaches, faster
+    (c,) = analysis.compare(rows, analysis.summarize(rows))
+    assert c["emeans_min_passes_reached"] == 2 and c["emeans_best_passes"] == 3

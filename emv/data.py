@@ -16,12 +16,17 @@ PROFILES = {
 DATASETS = ("separated", "gaussian", "imbalanced")
 
 
-def synthetic_data(name: str, ntrain: int, ntest: int, dim: int, k: int):
+IMBALANCE_EXPONENT = 1.3  # kit default
+
+
+def synthetic_data(name: str, ntrain: int, ntest: int, dim: int, k: int,
+                   imbalance_exponent: float = IMBALANCE_EXPONENT):
     """Independent train/test draws from a fixed generating distribution.
 
     separated:  k Gaussian blobs (centers ~ N(0, 4^2), unit noise), equal sizes
     gaussian:   a single standard normal (no cluster structure)
-    imbalanced: same blobs, cluster sizes follow a power law (rank^-1.3)
+    imbalanced: same blobs, cluster sizes follow a power law (rank^-imbalance_exponent;
+                the kit uses 1.3, and 0 gives the same sizes as separated)
     """
     rng = np.random.default_rng(DATA_SEED)
     count = ntrain + ntest
@@ -32,7 +37,7 @@ def synthetic_data(name: str, ntrain: int, ntest: int, dim: int, k: int):
         if name == "separated":
             prob = np.full(k, 1 / k)
         elif name == "imbalanced":
-            weights = (np.arange(1, k + 1, dtype=np.float64)) ** -1.3
+            weights = (np.arange(1, k + 1, dtype=np.float64)) ** -imbalance_exponent
             prob = weights / weights.sum()
         else:
             raise ValueError(name)

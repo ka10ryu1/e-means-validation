@@ -81,9 +81,31 @@ uv run python benchmark.py --profile quick --datasets imbalanced --seeds 10 11 1
 
 # 集計とレポートの再生成
 uv run python make_report.py results/<run-name>
+
+# 品質（MSE）だけを見る実験（他の作業と並行してよい。レポートに時間・倍率を出さない）
+uv run python benchmark.py --profile medium --datasets imbalanced --quality-only \
+    --emeans-unused-threshold 0 --run-name q_imb_norevival
 ```
 
-主なオプション: `--kmeans-niters`（既定 5 10 25）、`--kmeans-inits` / `--emeans-inits`（既定 `random kmeanspp`）、`--emeans-epochs`（既定 1 2 3 5 10）、`--baseline-niter`（25）、`--tolerance`（0.01）、`--order shuffled|fixed`、`--no-warmup`、`--input data.npy`（公開データのみ）、`--allow-unpinned`。
+### 速度計測の運用
+
+**速度（時間・倍率）の計測は、他の作業がない時間帯（夜間など）に `scripts/run_speed_suite.sh` で行います。** IDE の操作や他プロセスとの CPU の取り合いで、時間が数十％〜数倍ずれることを実測で確認しているためです（[docs/methodology.md](docs/methodology.md) の「計時の診断」）。
+
+```bash
+bash scripts/run_speed_suite.sh                       # quick（3 反復）→ medium、4 スレッド
+bash scripts/run_speed_suite.sh --profiles medium --max-wait-min 120
+```
+
+- 未コミットの変更があると実行しません（結果をコミットに対応させるため）。
+- 1 分ロードアベレージが 1.0 未満になるまで待ってから開始します（`--max-wait-min` 分待っても下がらなければ中止）。
+- 各実行で CPU の取り合いが検出された回数を表示し、検出があればレポート冒頭に警告を出します。
+- 自動実行する場合の例（Windows タスク スケジューラから WSL を起動）:
+  `wsl.exe -d Ubuntu -- bash -lc "cd ~/Work_2404_001/e-means-validation && bash scripts/run_speed_suite.sh"`。
+  実行中は Windows がスリープしない設定にしてください。
+
+日中に行う実験は `--quality-only` を付け、品質（MSE・空クラスタ・到達エポック数）だけを評価します。
+
+主なオプション: `--quality-only`、`--emeans-batch-law auto|throughput|quality`、`--emeans-unused-threshold`（e-means のクラスタ復活の閾値。既定は公式デフォルト）、`--imbalance-exponent`（既定 1.3 = キット）、`--kmeans-niters`（既定 5 10 25）、`--kmeans-inits` / `--emeans-inits`（既定 `random kmeanspp`）、`--emeans-epochs`（既定 1 2 3 5 10）、`--baseline-niter`（25）、`--tolerance`（0.01）、`--order shuffled|fixed`、`--no-warmup`、`--input data.npy`（公開データのみ）、`--allow-unpinned`。
 
 計測の公平性のために行っていること:
 

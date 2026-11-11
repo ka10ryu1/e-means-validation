@@ -67,3 +67,12 @@ def test_real_embeddings_split(tmp_path):
     assert tr.shape == (60, 4) and te.shape == (30, 4)
     with pytest.raises(ValueError):
         data.real_embeddings(path, 90, 30)
+
+
+def test_imbalance_exponent_default_matches_kit_and_zero_is_balanced():
+    a, _ = data.synthetic_data("imbalanced", 500, 10, 8, 10)
+    b, _ = data.synthetic_data("imbalanced", 500, 10, 8, 10, imbalance_exponent=1.3)
+    np.testing.assert_array_equal(a, b)
+    c, _ = data.synthetic_data("imbalanced", 500, 10, 8, 10, imbalance_exponent=0.0)
+    d, _ = data.synthetic_data("separated", 500, 10, 8, 10)
+    np.testing.assert_array_equal(c, d)

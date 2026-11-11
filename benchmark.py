@@ -47,6 +47,16 @@ def parse_args(argv=None):
                    help="NumpyEmeans seeding: random (official default) and/or kmeanspp "
                         "(same k-means++ centroids as the Faiss k-means++ baseline). "
                         "kmeanspp is dropped with --init shared")
+    p.add_argument("--emeans-batch-law", choices=("auto", "throughput", "quality"),
+                   default="auto", help="NumpyEmeans batch_law (official default: auto)")
+    p.add_argument("--emeans-unused-threshold", type=float, default=None,
+                   help="NumpyEmeans unused_threshold for cluster revival "
+                        "(official default None = 0.1, or 0 when d <= 2; 0 disables revival)")
+    p.add_argument("--imbalance-exponent", type=float, default=1.3,
+                   help="Power-law exponent of the imbalanced dataset (kit default 1.3)")
+    p.add_argument("--quality-only", action="store_true",
+                   help="Run is for quality (MSE) only, e.g. while other work is running; "
+                        "the report omits all time and speedup columns")
     p.add_argument("--emeans-epochs", nargs="+", type=float, default=[1, 2, 3, 5, 10],
                    help="NumpyEmeans nepochs values (kit default was 2 3 5)")
     p.add_argument("--baseline-niter", type=int, default=25)
@@ -165,6 +175,10 @@ def main(argv=None):
         "profile": args.profile, "settings": settings, "datasets": datasets,
         "seeds": args.seeds, "repeats": args.repeats, "threads": args.threads,
         "thread_env": {v: os.environ.get(v) for v in THREAD_ENV},
+        "quality_only": args.quality_only,
+        "emeans_batch_law": args.emeans_batch_law,
+        "emeans_unused_threshold": args.emeans_unused_threshold,
+        "imbalance_exponent": args.imbalance_exponent,
         "kmeans_niters": args.kmeans_niters, "kmeans_inits": args.kmeans_inits,
         "emeans_inits": args.emeans_inits, "emeans_epochs": args.emeans_epochs,
         "baseline_niter": args.baseline_niter, "tolerance": args.tolerance,
@@ -211,7 +225,8 @@ def main(argv=None):
             train, test = data.real_embeddings(args.input, settings["ntrain"], settings["ntest"])
             settings["dim"] = train.shape[1]
         else:
-            train, test = data.synthetic_data(dataset, **settings)
+            train, test = data.synthetic_data(dataset, **settings,
+                                              imbalance_exponent=args.imbalance_exponent)
         print(f"\nDataset={dataset} train={train.shape} test={test.shape} "
               f"(generated in {time.perf_counter() - t0:.2f}s, not part of timings)", flush=True)
         if not args.no_warmup:
@@ -232,7 +247,8 @@ def main(argv=None):
                     else:
                         centers, seconds, extra = runners.run_emeans(
                             NumpyEmeans, train, settings["k"], seed, passes, init,
-                            emeans_algs[alg], faiss)
+                            emeans_algs[alg], faiss, args.emeans_batch_law,
+                            args.emeans_unused_threshold)
                     train_mse, empty = runners.score(faiss, train, centers)
                     test_mse, _ = runners.score(faiss, test, centers)
                     rows.append(dict(
@@ -243,7 +259,8 @@ def main(argv=None):
                         loadavg_1m=load[0] if load else "", train_mse=round(train_mse, 8),
                         test_mse=round(test_mse, 8), empty_clusters=empty,
                         batch_size=extra.get("batch_size", ""), alpha0=extra.get("alpha0", ""),
-                        batch_law=extra.get("batch_law", ""), splits=extra.get("splits", "")))
+                        batch_law=extra.get("batch_law", ""), splits=extra.get("splits", ""),
+                        unused_threshold=extra.get("unused_threshold", "")))
                     run_index += 1
                     print(f"  seed={seed:>3} rep={repeat} {alg:12} passes={passes:>3}: "
                           f"{seconds:8.3f}s  train MSE={train_mse:.5f}  test MSE={test_mse:.5f}  "
@@ -258,10 +275,14 @@ def main(argv=None):
     write_outputs(out, report_dir, metadata, summaries, comparisons,
                   analysis.timing_diagnostics(rows))
 
-    print(f"\n=== Quality-matched speed (test MSE <= baseline x {1 + args.tolerance:g}, "
-          f"medians) ===")
+    title = "Quality match" if args.quality_only else "Quality-matched speed"
+    print(f"\n=== {title} (test MSE <= baseline x {1 + args.tolerance:g}, medians) ===")
     for c in comparisons:
-        if c["emeans_reached"]:
+        if c["emeans_reached"] and args.quality_only:
+            print(f"{c['dataset']:>11} {c['candidate']:<10} vs {c['baseline']:<19}: reached at "
+                  f"{c['emeans_min_passes_reached']} epochs (best MSE ratio "
+                  f"{c['emeans_best_mse_ratio']}); per-seed reached {c['per_seed_reached']}")
+        elif c["emeans_reached"]:
             print(f"{c['dataset']:>11} {c['candidate']:<10} vs {c['baseline']:<19}: "
                   f"{c['speedup_vs_baseline']:.2f}x at e-means "
                   f"{c['emeans_best_passes']} epochs (baseline MSE {c['baseline_median_test_mse']:.5f},"

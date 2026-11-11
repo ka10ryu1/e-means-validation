@@ -55,3 +55,25 @@ def test_shared_init_drops_kmeanspp():
     assert parse_args([]).kmeans_inits == ["random", "kmeanspp"]
     assert parse_args(["--init", "shared"]).emeans_inits == ["random"]
     assert parse_args([]).emeans_inits == ["random", "kmeanspp"]
+
+
+def test_quality_only_report_has_no_time_columns(official_source, tmp_path):
+    out, rep = tmp_path / "raw", tmp_path / "rep"
+    subprocess.run(
+        [sys.executable, "benchmark.py", "--profile", "smoke", "--threads", "1",
+         "--datasets", "imbalanced", "--seeds", "0", "--kmeans-niters", "25",
+         "--emeans-epochs", "1", "--kmeans-inits", "random", "--emeans-inits", "random",
+         "--quality-only", "--emeans-unused-threshold", "0", "--emeans-batch-law", "quality",
+         "--imbalance-exponent", "2.0",
+         "--out", str(out), "--report-dir", str(rep), "--run-name", "pytest-quality"],
+        cwd=ROOT, check=True, capture_output=True, text=True)
+    report = (rep / "report.md").read_text()
+    assert "品質専用の計測" in report
+    for header in ("倍率 (vs", "秒 中央値", "基準 秒", "シード別倍率", "計時は"):
+        assert header not in report, header
+    meta = json.loads((out / "metadata.json").read_text())
+    assert meta["quality_only"] and meta["imbalance_exponent"] == 2.0
+    with (out / "raw_results.csv").open() as f:
+        em = [r for r in csv.DictReader(f) if r["algorithm"] == "e_means"]
+    assert em and all(float(r["unused_threshold"]) == 0.0 and r["batch_law"] == "quality"
+                      for r in em)

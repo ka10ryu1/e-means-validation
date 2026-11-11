@@ -90,19 +90,21 @@ def kmeanspp_init(faiss, x, k, seed):
 
 
 def run_emeans(NumpyEmeans, train, k, seed, nepochs, init=None, init_method="random",
-               faiss=None):
-    """Official NumpyEmeans with default hyperparameters (scaling laws).
+               faiss=None, batch_law="auto", unused_threshold=None):
+    """Official NumpyEmeans; hyperparameters default to the official ones.
 
     ``init_method="kmeanspp"`` starts from the same k-means++ centroids as the
     Faiss k-means++ baseline; computing them is inside the timed region, as it
     is for Faiss. "random" keeps NumpyEmeans' own default seeding.
+    ``batch_law`` / ``unused_threshold`` are passed through unchanged.
     """
     n, dim = train.shape
     if init_method not in KMEANS_INIT_METHODS:
         raise ValueError(init_method)
     if init_method == "kmeanspp" and (init is not None or faiss is None):
         raise ValueError("kmeanspp init needs faiss and no explicit init centroids")
-    model = NumpyEmeans(dim, k, seed=seed, nepochs=nepochs, verbose=False)
+    model = NumpyEmeans(dim, k, seed=seed, nepochs=nepochs, verbose=False,
+                        batch_law=batch_law, unused_threshold=unused_threshold)
     with Timer() as t:
         if init_method == "kmeanspp":
             init = kmeanspp_init(faiss, train, k, seed)
@@ -115,6 +117,7 @@ def run_emeans(NumpyEmeans, train, k, seed, nepochs, init=None, init_method="ran
         "alpha0": recipe.get("alpha0"),
         "batch_law": recipe.get("batch_law"),
         "splits": int(model.n_splits),
+        "unused_threshold": model._unused_threshold,  # resolved value actually used
     }
     return validate_centers(centers, k, dim), elapsed, info
 
