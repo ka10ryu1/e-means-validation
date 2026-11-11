@@ -139,3 +139,23 @@ def test_min_passes_reached_is_time_independent():
             row("d", 0, "e_means", 3, 1.0, 1.0)]     # reaches, faster
     (c,) = analysis.compare(rows, analysis.summarize(rows))
     assert c["emeans_min_passes_reached"] == 2 and c["emeans_best_passes"] == 3
+
+
+def test_fractional_epochs_are_not_truncated(tmp_path):
+    rows = [row("d", 0, "faiss_kmeans", 25, 10.0, 1.0),
+            row("d", 0, "e_means", 1.5, 1.0, 1.2),    # not reached
+            row("d", 0, "e_means", 1.9, 2.0, 1.0)]    # reached
+    s = analysis.summarize(rows)
+    assert sorted(x["passes"] for x in s if x["algorithm"] == "e_means") == [1.5, 1.9]
+    (c,) = analysis.compare(rows, s)
+    assert c["emeans_min_passes_reached"] == 1.9 and c["per_seed_reached"] == "1/1"
+    assert c["per_seed_speedup_median"] == pytest.approx(5.0)
+    # round trip through the raw CSV keeps 1.5 and integral values as int
+    full = [dict(r, init="native", run_index=i, block_position=i, cpu_seconds="",
+                 main_thread_cpu_seconds="", loadavg_1m="", batch_size="", alpha0="",
+                 batch_law="", splits="", unused_threshold="") for i, r in enumerate(rows)]
+    path = tmp_path / "raw.csv"
+    analysis.write_csv(path, full, analysis.RAW_KEYS)
+    back = analysis.read_raw_csv(path)
+    assert [r["passes"] for r in back] == [25, 1.5, 1.9]
+    assert isinstance(back[0]["passes"], int)

@@ -90,7 +90,8 @@ def parse_args(argv=None):
         args.emeans_inits = ["random"]
     if not args.emeans_inits:
         p.error("--emeans-inits needs at least one value")
-    args.emeans_epochs = [int(e) if float(e).is_integer() else e for e in args.emeans_epochs]
+    from emv.analysis import normalize_passes
+    args.emeans_epochs = [normalize_passes(e) for e in args.emeans_epochs]
     if args.seeds is None:
         args.seeds = DEFAULT_SEEDS[args.profile]
     return args

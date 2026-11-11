@@ -23,6 +23,15 @@ RAW_KEYS = ["dataset", "seed", "repeat", "algorithm", "passes", "init", "run_ind
             "batch_size", "alpha0", "batch_law", "splits", "unused_threshold"]
 
 
+def normalize_passes(value) -> int | float:
+    """Epoch / iteration count as int when integral, else float (e.g. 2.5 epochs).
+
+    Never truncate: fractional e-means budgets are distinct configurations.
+    """
+    v = float(value)
+    return int(v) if v.is_integer() else v
+
+
 def write_csv(path: Path, rows: list[dict], keys: list[str] | None = None) -> None:
     keys = keys or list(rows[0].keys())
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -35,9 +44,9 @@ def read_raw_csv(path: Path) -> list[dict]:
     rows = []
     with path.open(newline="", encoding="utf-8") as f:
         for r in csv.DictReader(f):
-            for key in ("seed", "repeat", "passes", "run_index", "block_position",
-                        "empty_clusters"):
+            for key in ("seed", "repeat", "run_index", "block_position", "empty_clusters"):
                 r[key] = int(float(r[key]))
+            r["passes"] = normalize_passes(r["passes"])
             for key in ("seconds", "train_mse", "test_mse"):
                 r[key] = float(r[key])
             for key in ("cpu_seconds", "main_thread_cpu_seconds", "loadavg_1m"):
@@ -100,7 +109,7 @@ def summarize(rows: list[dict]) -> list[dict]:
     """Per (dataset, algorithm, passes): medians plus spread over seeds x repeats."""
     grouped = defaultdict(list)
     for row in rows:
-        grouped[(row["dataset"], row["algorithm"], int(row["passes"]))].append(row)
+        grouped[(row["dataset"], row["algorithm"], normalize_passes(row["passes"]))].append(row)
     summaries = []
     for (dataset, alg, passes), members in sorted(grouped.items()):
         sec_med, sec_min, sec_max, sec_std = _stats([r["seconds"] for r in members])
@@ -132,7 +141,7 @@ def _per_seed(rows, dataset):
     acc = defaultdict(lambda: defaultdict(list))
     for r in rows:
         if r["dataset"] == dataset:
-            acc[r["seed"]][(r["algorithm"], int(r["passes"]))].append(r)
+            acc[r["seed"]][(r["algorithm"], normalize_passes(r["passes"]))].append(r)
     return {
         seed: {key: (float(np.median([m["seconds"] for m in ms])),
                      float(np.median([m["test_mse"] for m in ms])))
