@@ -70,5 +70,12 @@ def test_official_api_used_by_benchmark(official_source):
         "p, _, _ = runners.run_faiss_kmeans(faiss, tr, 8, seed=0, niter=3, init_method='kmeanspp')\n"
         "r, _, _ = runners.run_faiss_kmeans(faiss, tr, 8, seed=0, niter=3)\n"
         "assert p.shape == (8, 8) and not np.array_equal(p, r), 'k-means++ must change the seeding'\n"
+        "# e_means_pp starts from exactly the centroids Faiss k-means++ uses\n"
+        "q, _, _ = runners.run_faiss_kmeans(faiss, tr, 8, seed=5, niter=3, init=runners.kmeanspp_init(faiss, tr, 8, 5))\n"
+        "p5, _, _ = runners.run_faiss_kmeans(faiss, tr, 8, seed=5, niter=3, init_method='kmeanspp')\n"
+        "assert np.array_equal(q, p5), 'kmeanspp_init must reproduce Faiss k-means++ seeding'\n"
+        "e, sec, _ = runners.run_emeans(E, tr, 8, seed=5, nepochs=2, init_method='kmeanspp', faiss=faiss)\n"
+        "e2, _, _ = runners.run_emeans(E, tr, 8, seed=5, nepochs=2, init=runners.kmeanspp_init(faiss, tr, 8, 5))\n"
+        "assert np.array_equal(e, e2) and sec > 0\n"
         "print('ok')\n")
     assert out.strip() == "ok"

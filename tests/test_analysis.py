@@ -78,3 +78,17 @@ def test_kmeanspp_baseline_is_compared_separately():
     assert pp["baseline"] == "faiss_kmeans_pp@25" and pp["emeans_reached"] is False
     assert pp["kmeans_fastest_niter_within_tol"] == 5
     assert pp["emeans_best_mse_ratio"] == pytest.approx(1.5)
+
+
+def test_each_emeans_variant_gets_its_own_row():
+    rows = [row("d", 0, "faiss_kmeans_pp", 25, 10.0, 1.0),
+            row("d", 0, "faiss_kmeans", 25, 10.0, 2.0),
+            row("d", 0, "e_means", 2, 1.0, 1.5),
+            row("d", 0, "e_means_pp", 2, 2.0, 0.99)]
+    out = analysis.compare(rows, analysis.summarize(rows))
+    got = {(c["baseline"], c["candidate"]): c for c in out}
+    assert set(got) == {(b, c) for b in ("faiss_kmeans@25", "faiss_kmeans_pp@25")
+                        for c in ("e_means", "e_means_pp")}
+    assert got[("faiss_kmeans_pp@25", "e_means")]["emeans_reached"] is False
+    pp = got[("faiss_kmeans_pp@25", "e_means_pp")]
+    assert pp["emeans_reached"] is True and pp["speedup_vs_baseline"] == pytest.approx(5.0)

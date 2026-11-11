@@ -13,7 +13,9 @@ import numpy as np
 KMEANS = "faiss_kmeans"          # Lloyd, random init (Faiss default)
 KMEANS_PP = "faiss_kmeans_pp"    # Lloyd, k-means++ init
 BASELINES = (KMEANS, KMEANS_PP)
-EMEANS = "e_means"
+EMEANS = "e_means"                # official NumpyEmeans, its own random init
+EMEANS_PP = "e_means_pp"          # NumpyEmeans from the Faiss k-means++ centroids
+CANDIDATES = (EMEANS, EMEANS_PP)
 
 RAW_KEYS = ["dataset", "seed", "repeat", "algorithm", "passes", "init", "run_index",
             "block_position", "seconds", "train_mse", "test_mse", "empty_clusters",
@@ -96,7 +98,9 @@ def compare(rows: list[dict], summaries: list[dict], baseline_niter: int = 25,
 
     Baseline: Faiss k-means at ``baseline_niter`` iterations, once per
     baseline algorithm present (random init is required, k-means++ optional);
-    "fastest k-means" is searched within the same baseline algorithm. An e-means
+    "fastest k-means" is searched within the same baseline algorithm. Each
+    baseline is compared with every e-means variant present (``candidate``:
+    e_means = official default init, e_means_pp = k-means++ init). An e-means
     configuration "reaches" the baseline when its test MSE is
     <= baseline test MSE * (1 + tolerance). Among reaching configurations the
     fastest one is used. Done twice: on medians across seeds (kit rule), and
@@ -113,14 +117,17 @@ def compare(rows: list[dict], summaries: list[dict], baseline_niter: int = 25,
                     raise ValueError(
                         f"{dataset}: no {KMEANS} run with {baseline_niter} iterations")
                 continue  # optional baseline (e.g. k-means++) not measured
-            out.append(_compare_one(rows, ds, dataset, base_alg, km, base,
-                                    baseline_niter, tolerance))
+            for cand in CANDIDATES:
+                if any(s["algorithm"] == cand for s in ds):
+                    out.append(_compare_one(rows, ds, dataset, base_alg, km, base,
+                                            baseline_niter, tolerance, cand))
     return out
 
 
-def _compare_one(rows, ds, dataset, base_alg, km, base, baseline_niter, tolerance):
+def _compare_one(rows, ds, dataset, base_alg, km, base, baseline_niter, tolerance,
+                 candidate=EMEANS):
     threshold = base["median_test_mse"] * (1 + tolerance)
-    em = [s for s in ds if s["algorithm"] == EMEANS]
+    em = [s for s in ds if s["algorithm"] == candidate]
     reached = [s for s in em if s["median_test_mse"] <= threshold]
     best = min(reached, key=lambda s: s["median_seconds"]) if reached else None
     km_best = min((s for s in km if s["median_test_mse"] <= threshold),
@@ -134,13 +141,14 @@ def _compare_one(rows, ds, dataset, base_alg, km, base, baseline_niter, toleranc
         n_seeds += 1
         b_sec, b_mse = cfg[(base_alg, baseline_niter)]
         ok = [v for (alg, _), v in cfg.items()
-              if alg == EMEANS and v[1] <= b_mse * (1 + tolerance)]
+              if alg == candidate and v[1] <= b_mse * (1 + tolerance)]
         if ok:
             seed_speedups.append(b_sec / max(min(v[0] for v in ok), 1e-9))
 
     return {
         "dataset": dataset,
         "baseline": f"{base_alg}@{baseline_niter}",
+        "candidate": candidate,
         "baseline_median_test_mse": base["median_test_mse"],
         "threshold_test_mse": round(threshold, 8),
         "baseline_median_seconds": base["median_seconds"],
@@ -215,11 +223,14 @@ def render_report(metadata: dict, summaries: list[dict], comparisons: list[dict]
         f"判定規則: {m['quality_rule']}。到達しなかった場合は **NO** と記録し、倍率は算出しない。",
         "到達判定は test MSE のみに基づく。到達構成に空クラスタが残る場合は品質上の注意が必要（`到達構成の空クラスタ` 列）。\n"
         "`speedup_vs_fastest_kmeans` は、基準と同じ手法（同じ初期化）の k-means が同じ閾値に達する最短反復数との比較（保守的な倍率）。",
-        "基準 `faiss_kmeans` は Faiss 既定のランダム初期化、`faiss_kmeans_pp` は k-means++ 初期化（初期化時間も学習時間に含む）。",
+        "基準 `faiss_kmeans` は Faiss 既定のランダム初期化、`faiss_kmeans_pp` は k-means++ 初期化（初期化時間も学習時間に含む）。"
+        "`e_means` は公式デフォルトの初期化、`e_means_pp` は `faiss_kmeans_pp` と同一の k-means++ 初期重心から開始（初期化時間を含む）。"
+        "以下の列名の emeans_* は、この行の e-means 初期化（candidate）を指す。",
         "",
         _table(comparisons, [
             ("dataset", "dataset"),
             ("baseline", "基準"),
+            ("candidate", "e-means 初期化"),
             ("baseline_median_test_mse", "基準 test MSE"),
             ("baseline_median_seconds", "基準 秒"),
             ("emeans_reached", "e-means 到達"),

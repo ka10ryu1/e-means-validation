@@ -53,11 +53,35 @@ def run_faiss_kmeans(faiss, train, k, seed, niter, init=None, init_method="rando
     return validate_centers(model.centroids, k, dim), elapsed, {}
 
 
-def run_emeans(NumpyEmeans, train, k, seed, nepochs, init=None):
-    """Official NumpyEmeans with default hyperparameters (scaling laws)."""
+def kmeanspp_init(faiss, x, k, seed):
+    """k-means++ centroids exactly as faiss.Kmeans(init_method=KMEANS_PLUS_PLUS,
+    seed=seed) draws them (Faiss seeds its initializer with seed + 1)."""
+    x = np.ascontiguousarray(x, dtype=np.float32)
+    ci = faiss.ClusteringInitialization(x.shape[1], k)
+    ci.method = faiss.ClusteringInitMethod_KMEANS_PLUS_PLUS
+    ci.seed = seed + 1
+    out = np.empty((k, x.shape[1]), dtype=np.float32)
+    ci.init_centroids(len(x), faiss.swig_ptr(x), faiss.swig_ptr(out))
+    return out
+
+
+def run_emeans(NumpyEmeans, train, k, seed, nepochs, init=None, init_method="random",
+               faiss=None):
+    """Official NumpyEmeans with default hyperparameters (scaling laws).
+
+    ``init_method="kmeanspp"`` starts from the same k-means++ centroids as the
+    Faiss k-means++ baseline; computing them is inside the timed region, as it
+    is for Faiss. "random" keeps NumpyEmeans' own default seeding.
+    """
     n, dim = train.shape
+    if init_method not in KMEANS_INIT_METHODS:
+        raise ValueError(init_method)
+    if init_method == "kmeanspp" and (init is not None or faiss is None):
+        raise ValueError("kmeanspp init needs faiss and no explicit init centroids")
     model = NumpyEmeans(dim, k, seed=seed, nepochs=nepochs, verbose=False)
     started = time.perf_counter()
+    if init_method == "kmeanspp":
+        init = kmeanspp_init(faiss, train, k, seed)
     centers, _ = model.train(train, init_centroids=init)
     elapsed = time.perf_counter() - started
     recipe = model.recipe or {}
