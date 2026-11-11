@@ -19,6 +19,16 @@ DEFAULT_SOURCE = ROOT / "faiss-src"
 MODULE = "faiss.contrib.e_means"
 
 
+def display_path(path) -> str:
+    """Path relative to the repository root (no user-specific absolute paths in
+    metadata); paths outside the repository are reduced to their file name."""
+    path = Path(path).expanduser().resolve()
+    try:
+        return path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return path.name
+
+
 def pinned_commit() -> str:
     return PIN_FILE.read_text(encoding="utf-8").strip()
 
@@ -85,7 +95,7 @@ def source_info(faiss, repo: Path = DEFAULT_SOURCE) -> dict:
     digest = tree_digest(package_dir)
     bundled = tree_digest(bundled_dir) if bundled_dir.is_dir() else None
     return {
-        "faiss_source_path": str(package_dir),
+        "faiss_source_path": display_path(package_dir),
         "faiss_source_sha": sha or "unknown",
         "faiss_source_pinned_sha": pinned_commit(),
         "faiss_source_matches_pin": sha == pinned_commit(),

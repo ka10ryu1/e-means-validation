@@ -2,7 +2,7 @@
   "run_name": "quick_shared_t4",
   "started_at": "2026-11-11T02:25:22+00:00",
   "command": [
-    "/home/lsyp/Work_2404_001/e-means-validation/.venv/bin/python",
+    "python",
     "benchmark.py",
     "--profile",
     "quick",
@@ -77,7 +77,7 @@
   "repo_commit": "a983dc5842fc4254fbe45ccebd4b9fdd289ba518",
   "repo_dirty": true,
   "e_means_source": {
-    "faiss_source_path": "/home/lsyp/Work_2404_001/e-means-validation/faiss-src/contrib/e_means",
+    "faiss_source_path": "faiss-src/contrib/e_means",
     "faiss_source_sha": "ddc768060c42e9627b6bf22123fe7e207c9a6efc",
     "faiss_source_pinned_sha": "ddc768060c42e9627b6bf22123fe7e207c9a6efc",
     "faiss_source_matches_pin": true,

@@ -28,7 +28,9 @@ def test_smoke_benchmark_and_report(official_source, tmp_path):
     assert {r["algorithm"] for r in rows} == {"faiss_kmeans", "e_means"}
     assert all(float(r["seconds"]) > 0 and float(r["test_mse"]) > 0 for r in rows)
 
-    meta = json.loads((out / "metadata.json").read_text())
+    meta_text = (out / "metadata.json").read_text()
+    assert str(ROOT) not in meta_text, "metadata must not contain absolute repo paths"
+    meta = json.loads(meta_text)
     assert meta["threads"] == 1 and meta["thread_env"]["OMP_NUM_THREADS"] == "1"
     assert meta["e_means_source"]["faiss_source_matches_pin"] is True
     assert "e-means 検証レポート" in (rep / "report.md").read_text()

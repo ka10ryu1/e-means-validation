@@ -138,7 +138,7 @@ def main(argv=None):
     metadata = {
         "run_name": run_name,
         "started_at": started_at.isoformat(timespec="seconds"),
-        "command": [sys.executable, *sys.argv],
+        "command": ["python", *sys.argv],
         "profile": args.profile, "settings": settings, "datasets": datasets,
         "seeds": args.seeds, "repeats": args.repeats, "threads": args.threads,
         "thread_env": {v: os.environ.get(v) for v in THREAD_ENV},
@@ -149,7 +149,7 @@ def main(argv=None):
                       "（同一seedでも初期重心は一致しない）" if args.init == "native" else
                       "両者に同一の初期重心（RandomState(seed).permutation(n)[:k] の行）を与える"),
         "order": args.order, "warmup": not args.no_warmup,
-        "input": str(args.input) if args.input else "synthetic",
+        "input": official.display_path(args.input) if args.input else "synthetic",
         "data_seed": data.DATA_SEED,
         "faiss_version": getattr(faiss, "__version__", "unknown"),
         "numpy_version": np.__version__, "numpy_blas": blas,
