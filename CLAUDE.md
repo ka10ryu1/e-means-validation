@@ -62,4 +62,4 @@ uv run python make_report.py results/<run-name>
 2. `reports/speed_<日時>_quick_t4/` と `reports/speed_<日時>_medium_t4/` の `report.md` を読み、`metadata.json` の `repo_dirty: false` と `faiss_source_matches_pin: true` を確認する。
 3. README の「7. 実測結果」の速度の数値（秒・倍率）を、夜間計測の値に差し替える。日中計測の注記（取り合い・計時の再現性）は、夜間の結果と比べたうえで残すか書き直す。品質（MSE・到達・空クラスタ）は計測時刻に依存しないので、値が一致することを確認するだけでよい。
 4. 解釈（倍率、1 エポックあたりのコスト比など）の数値も夜間の値で見直し、変わった結論は明記する。
-5. レポートと README をコミットし、PR のブランチに push する。
+5. レポートと README をコミットし、PR のブランチに push する（PR がマージ済みなら `main` から新しいブランチを作って PR を出す）。
