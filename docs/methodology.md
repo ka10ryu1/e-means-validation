@@ -23,11 +23,12 @@
 |---|---|---|
 | `faiss_kmeans` | `faiss.Kmeans`（C++ Lloyd法） | `niter` ∈ {5, 10, 25}、`max_points_per_centroid=n`（既定の 256点/クラスタ サンプリング上限を解除し全件学習）、`min_points_per_centroid=1`、`nredo=1`、初期化 RANDOM |
 | `faiss_kmeans_pp` | `faiss.Kmeans`（C++ Lloyd法） | `faiss_kmeans` と同じ設定で、初期化のみ k-means++（`init_method=ClusteringInitMethod_KMEANS_PLUS_PLUS`）。初期化の計算時間も `train()` 内で計時される |
+| `e_means_pp` | 公式 `NumpyEmeans`（同上） | `e_means` と同じ設定で、`faiss_kmeans_pp` と**ビット単位で同一の** k-means++ 初期重心（`faiss.ClusteringInitialization`, seed+1）から開始。初期化時間も計時に含む |
 | `e_means` | 公式 `faiss.contrib.e_means.NumpyEmeans`（FAISS_COMMIT 固定） | `nepochs` ∈ {1, 2, 3, 5, 10}、その他すべて公式デフォルト（`batch_law="auto"`, `capture_assignments=True`, 縮退クラスタの復活あり） |
 
 次フェーズ候補: scikit-learn `MiniBatchKMeans`。
 
-`--kmeans-inits` で k-means の初期化方式を選ぶ（既定 `random kmeanspp`）。仕様上の基準はランダム初期化（Faiss 既定）の Lloyd25 で、k-means++ 版は「より強い Lloyd」として別の基準行で比較する。
+`--kmeans-inits` / `--emeans-inits` で初期化方式を選ぶ（既定はどちらも `random kmeanspp`）。`faiss_kmeans_pp` と `e_means_pp` は初期重心が完全に一致するため、両者の差は更新則（Lloyd 対 e-means）だけによる。仕様上の基準はランダム初期化（Faiss 既定）の Lloyd25 で、k-means++ 版は「より強い Lloyd」として別の基準行で比較する。
 
 ### 初期化条件の違い
 
@@ -38,7 +39,7 @@
 | 初期化コスト | ほぼ0 | O(n·k·d)（計時に含む） | ほぼ0 |
 | 空クラスタ処理 | 各反復で大きなクラスタを分割して補充 | 同左 | 5更新ごとに質量が平均の0.1倍未満のクラスタを、大きいクラスタの分割で復活（d≤2 では無効） |
 
-`--init shared` を指定すると、random の k-means と e-means に `RandomState(seed).permutation(n)[:k]` の同一初期重心を与える（e-means にとってはデフォルトと同一の初期値）。初期値を外から与えるため、このモードでは k-means++ は自動的に除外される。既定は `native`（各ライブラリの通常の使い方）。
+`--init shared` を指定すると、random の k-means と e-means に `RandomState(seed).permutation(n)[:k]` の同一初期重心を与える（e-means にとってはデフォルトと同一の初期値）。初期値を外から与えるため、このモードでは k-means++ 系（`faiss_kmeans_pp`, `e_means_pp`）は自動的に除外される。既定は `native`（各ライブラリの通常の使い方）。
 
 ## 3. データ
 
@@ -73,7 +74,7 @@
 | `seconds` | 学習時間（秒） |
 | `train_mse` / `test_mse` | 学習・評価データの最近傍重心への平均二乗距離 |
 | `empty_clusters` | 学習データを最終重心に割り当てたとき点が0のクラスタ数 |
-| 基準 | `faiss_kmeans@25`（仕様上の基準、ランダム初期化）と、計測していれば `faiss_kmeans_pp@25`。`comparison.csv` は (dataset, 基準) ごとに1行 |
+| 基準 | `faiss_kmeans@25`（仕様上の基準、ランダム初期化）と、計測していれば `faiss_kmeans_pp@25`。`comparison.csv` は (dataset, 基準, e-means の種類 `candidate`) ごとに1行 |
 | 同等品質到達 | `test_mse ≤ 基準の test_mse × 1.01`（1%以内、または良い） |
 | `speedup_vs_baseline` | 基準の中央値時間 ÷ 到達した e-means 構成のうち最短の中央値時間 |
 | `speedup_vs_fastest_kmeans` | 同じ閾値に到達する **同じ初期化方式の k-means の最短反復数** の時間 ÷ 上記 e-means 時間（k-means が25反復より前に収束している場合の過大評価を防ぐ保守的な倍率） |
@@ -88,7 +89,7 @@
 ## 6. 既知の制約・交絡要因
 
 - **規模依存**: quick（20k×128）は1回の学習が数十〜百数十ミリ秒で、Python のループ・関数呼び出しのオーバーヘッドの比率が大きい。倍率は規模に強く依存し得る。
-- **Lloyd の初期化**: ランダム初期化の Lloyd は分離の良いデータで局所解に陥りやすい。このため k-means++ 版を2つ目の基準として併記している。e-means 側は公式デフォルトのランダム初期化のみで、e-means に k-means++ の初期値を与える比較は未実施。
+- **Lloyd の初期化**: ランダム初期化の Lloyd は分離の良いデータで局所解に陥りやすい。このため k-means++ 版を2つ目の基準として併記している。e-means 側も k-means++ 初期値から始める `e_means_pp` を併記している。
 - **e-means の計時にはラベル保存コストを含む**（公式デフォルト）。
 - **WSL2 上の計測**: ホストOSの負荷、CPU周波数変動、電源設定の影響を受ける。同一マシン内の相対比較に限定すること。
 - **共有CIランナーでは性能を評価しない**（GitHub Actions は正しさのテストのみ）。

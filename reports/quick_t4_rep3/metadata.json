@@ -1,6 +1,6 @@
 {
   "run_name": "quick_t4_rep3",
-  "started_at": "2026-11-11T04:20:26+00:00",
+  "started_at": "2026-11-11T04:34:43+00:00",
   "command": [
     "python",
     "benchmark.py",
@@ -46,6 +46,10 @@
     "random",
     "kmeanspp"
   ],
+  "emeans_inits": [
+    "random",
+    "kmeanspp"
+  ],
   "emeans_epochs": [
     1,
     2,
@@ -78,7 +82,7 @@
   "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
   "cpu_model": "Intel(R) Core(TM) Ultra 7 258V",
   "cpu_count": 6,
-  "repo_commit": "f6ea70ebf50c90da402005e68e759bb028fdf85c",
+  "repo_commit": "fab89c72b30b1dae211eb01507f02222731c4195",
   "repo_dirty": false,
   "e_means_source": {
     "faiss_source_path": "faiss-src/contrib/e_means",
@@ -92,5 +96,5 @@
   },
   "quality_rule": "test MSE <= 基準（Faiss k-means 25反復。ランダム初期化、計測時は k-means++ 初期化も）の test MSE × 1.01（中央値どうし／シード別の両方で判定）",
   "timing": "training only (train() call), time.perf_counter; evaluation excluded",
-  "finished_at": "2026-11-11T04:20:50+00:00"
+  "finished_at": "2026-11-11T04:35:32+00:00"
 }
