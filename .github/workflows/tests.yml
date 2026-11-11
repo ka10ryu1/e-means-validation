@@ -1,0 +1,26 @@
+# Lightweight correctness tests only.
+# Performance comparisons must NOT be evaluated on shared GitHub runners.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Fetch pinned official Faiss source
+        run: bash scripts/setup_faiss.sh
+      - name: Run tests
+        env:
+          EMV_REQUIRE_OFFICIAL: "1"   # fail instead of skip if faiss-src is missing
+        run: uv run pytest

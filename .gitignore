@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- e-means-validation ---
+# 公式Faissソース（scripts/setup_faiss.sh で FAISS_COMMIT のSHAに固定して取得。Git管理外）
+faiss-src/
+# ベンチマーク生データ（大容量・環境依存）。集計は reports/ に保存してGit管理する
+results/*
+!results/.gitkeep
