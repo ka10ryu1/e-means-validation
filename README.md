@@ -94,6 +94,8 @@ uv run python benchmark.py --profile medium --datasets imbalanced --quality-only
 ```bash
 bash scripts/run_speed_suite.sh                       # quick（3 反復）→ medium、4 スレッド
 bash scripts/run_speed_suite.sh --profiles medium --max-wait-min 120
+bash scripts/run_scaling_suite.sh                     # 規模を振る検証（k・n・d を 1 つずつ、約 3 時間）
+bash scripts/run_scaling_suite.sh --points "k4096 n1m" # 一部の点だけ
 ```
 
 - 未コミットの変更があると実行しません（結果をコミットに対応させるため）。
@@ -105,7 +107,7 @@ bash scripts/run_speed_suite.sh --profiles medium --max-wait-min 120
 
 日中に行う実験は `--quality-only` を付け、品質（MSE・空クラスタ・到達エポック数）だけを評価します。
 
-主なオプション: `--quality-only`、`--emeans-batch-law auto|throughput|quality`、`--emeans-unused-threshold`（e-means のクラスタ復活の閾値。既定は公式デフォルト）、`--imbalance-exponent`（既定 1.3 = キット）、`--kmeans-niters`（既定 5 10 25）、`--kmeans-inits` / `--emeans-inits`（既定 `random kmeanspp`）、`--emeans-epochs`（既定 1 2 3 5 10）、`--baseline-niter`（25）、`--tolerance`（0.01）、`--order shuffled|fixed`、`--no-warmup`、`--input data.npy`（公開データのみ）、`--allow-unpinned`。
+主なオプション: `--quality-only`、`--ntrain` / `--ntest` / `--dim` / `--k`（プロファイルの値を上書き。規模を振る検証用）、`--emeans-batch-law auto|throughput|quality`、`--emeans-unused-threshold`（e-means のクラスタ復活の閾値。既定は公式デフォルト）、`--imbalance-exponent`（既定 1.3 = キット）、`--kmeans-niters`（既定 5 10 25）、`--kmeans-inits` / `--emeans-inits`（既定 `random kmeanspp`）、`--emeans-epochs`（既定 1 2 3 5 10）、`--baseline-niter`（25）、`--tolerance`（0.01）、`--order shuffled|fixed`、`--no-warmup`、`--input data.npy`（公開データのみ）、`--allow-unpinned`。
 
 計測の公平性のために行っていること:
 
@@ -222,7 +224,7 @@ Medium も、日中の計測（`reports/medium_t4/`、作業中で取り合い�
 - クラスタ復活のメカニズムの確認（復活の発動回数と対象の質量の記録）、閾値の細かい掃引、k を変えた再確認（[docs/findings-imbalanced.md](docs/findings-imbalanced.md) の「次の検証候補」）
 - 計時ノイズの原因調査（`taskset` 等によるコア固定、Windows の電源設定）。作業のない時間帯でも Quick の時間が実行間で変わる原因の特定
 - scikit-learn `MiniBatchKMeans` の追加
-- クラスタ数（k = 256〜16k）・次元（d = 2, 16, 128, 768）・データ数を振ったスケーリング検証
+- 規模を振る検証（k = 256〜4,096、n = 100k〜1M、d = 2〜768。設計は [docs/methodology.md](docs/methodology.md) の 6 節、実行は `scripts/run_scaling_suite.sh`）。k = 16,384 は 1 条件で約 1 時間かかるため、別途検討する。
 - 公開実データ（例: SIFT1M、DEEP1M の部分集合）での検証
 - スレッド数（1, 2, 4, 6）による倍率の変化
 - `batch_law="quality"` と `"throughput"` の比較、`capture_assignments=False` の影響

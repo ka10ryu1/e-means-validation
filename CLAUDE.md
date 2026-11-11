@@ -22,6 +22,7 @@ Meta FAIR の e-means（`faiss.contrib.e_means`）の主張を、CPU上で独立
 | `emv/runners.py` | 計時付き学習、厳密スコアリング |
 | `emv/analysis.py` | 集計、品質一致倍率、Markdown レポート |
 | `scripts/setup_faiss.sh` | 固定SHAの公式ソース取得 |
+| `scripts/run_speed_suite.sh` / `run_scaling_suite.sh` | 作業のない時間帯の速度計測（共通処理は `_suite_common.sh`） |
 | `results/` | 生データ（Git 管理外） |
 | `reports/<run>/` | 集計CSV・metadata.json・report.md（Git 管理対象） |
 
@@ -44,6 +45,7 @@ bash scripts/setup_faiss.sh
 uv run pytest
 uv run python benchmark.py --profile quick --threads 4
 uv run python benchmark.py --profile medium --threads 4
+bash scripts/run_scaling_suite.sh   # 規模を振る検証。作業のない時間帯に（約 3 時間）
 uv run python make_report.py results/<run-name>
 ```
 
