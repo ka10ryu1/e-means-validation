@@ -1,6 +1,6 @@
 {
-  "run_name": "medium_native_t4",
-  "started_at": "2026-11-11T02:25:30+00:00",
+  "run_name": "medium_t4",
+  "started_at": "2026-11-11T04:20:57+00:00",
   "command": [
     "python",
     "benchmark.py",
@@ -9,7 +9,7 @@
     "--threads",
     "4",
     "--run-name",
-    "medium_native_t4"
+    "medium_t4"
   ],
   "profile": "medium",
   "settings": {
@@ -41,6 +41,10 @@
     5,
     10,
     25
+  ],
+  "kmeans_inits": [
+    "random",
+    "kmeanspp"
   ],
   "emeans_epochs": [
     1,
@@ -74,8 +78,8 @@
   "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
   "cpu_model": "Intel(R) Core(TM) Ultra 7 258V",
   "cpu_count": 6,
-  "repo_commit": "a983dc5842fc4254fbe45ccebd4b9fdd289ba518",
-  "repo_dirty": true,
+  "repo_commit": "f6ea70ebf50c90da402005e68e759bb028fdf85c",
+  "repo_dirty": false,
   "e_means_source": {
     "faiss_source_path": "faiss-src/contrib/e_means",
     "faiss_source_sha": "ddc768060c42e9627b6bf22123fe7e207c9a6efc",
@@ -86,7 +90,7 @@
     "bundled_wheel_e_means_present": true,
     "bundled_wheel_e_means_identical": true
   },
-  "quality_rule": "test MSE <= Faiss k-means 25反復の test MSE × 1.01（中央値どうし／シード別の両方で判定）",
+  "quality_rule": "test MSE <= 基準（Faiss k-means 25反復。ランダム初期化、計測時は k-means++ 初期化も）の test MSE × 1.01（中央値どうし／シード別の両方で判定）",
   "timing": "training only (train() call), time.perf_counter; evaluation excluded",
-  "finished_at": "2026-11-11T02:33:46+00:00"
+  "finished_at": "2026-11-11T04:31:01+00:00"
 }

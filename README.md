@@ -83,7 +83,7 @@ uv run python benchmark.py --profile quick --datasets imbalanced --seeds 10 11 1
 uv run python make_report.py results/<run-name>
 ```
 
-主なオプション: `--kmeans-niters`（既定 5 10 25）、`--emeans-epochs`（既定 1 2 3 5 10）、`--baseline-niter`（25）、`--tolerance`（0.01）、`--order shuffled|fixed`、`--no-warmup`、`--input data.npy`（公開データのみ）、`--allow-unpinned`。
+主なオプション: `--kmeans-niters`（既定 5 10 25）、`--kmeans-inits`（既定 `random kmeanspp`）、`--emeans-epochs`（既定 1 2 3 5 10）、`--baseline-niter`（25）、`--tolerance`（0.01）、`--order shuffled|fixed`、`--no-warmup`、`--input data.npy`（公開データのみ）、`--allow-unpinned`。
 
 計測の公平性のために行っていること:
 
@@ -96,7 +96,7 @@ uv run python make_report.py results/<run-name>
 - 複数シード（quick 3 / medium 5）で中央値とばらつきを評価
 - Faiss k-means の 256 点/クラスタのサンプリング上限を解除（全件学習）
 
-初期化条件の違い: Faiss k-means と NumpyEmeans はどちらも学習データから k 点を無作為抽出しますが、乱数生成器が異なるため同一 seed でも初期重心は一致しません（既定 `--init native`）。`--init shared` では両者に同一の初期重心を与えます。詳細は [docs/methodology.md](docs/methodology.md)。
+初期化条件の違い: Faiss k-means（Faiss 既定のランダム初期化）と NumpyEmeans はどちらも学習データから k 点を無作為抽出しますが、乱数生成器が異なるため同一 seed でも初期重心は一致しません（既定 `--init native`）。`--init shared` ではこの2者に同一の初期重心を与えます。これとは別に、より強い Lloyd として **k-means++ 初期化の Faiss k-means（`faiss_kmeans_pp`）** も計測します（初期化時間も学習時間に含む。`--init shared` では除外）。詳細は [docs/methodology.md](docs/methodology.md)。
 
 ## 5. 評価指標と判定方法
 
@@ -105,10 +105,12 @@ uv run python make_report.py results/<run-name>
 | 学習時間 | `train()` の実時間（秒） |
 | train / test MSE | 最終重心に厳密 `faiss.knn` で再割当てした平均二乗距離（全アルゴリズム共通の評価経路） |
 | 空クラスタ数 | 学習データの割当てが 0 のクラスタ数 |
-| 同等品質到達 | **e-means の test MSE ≤ Faiss k-means 25 反復の test MSE × 1.01** |
-| 高速化倍率（vs Lloyd25） | Lloyd25 の時間 ÷ 到達した e-means 構成のうち最短の時間 |
-| 高速化倍率（vs k-means 最短） | 同じ閾値に到達する最短の k-means 反復数の時間 ÷ 上記 e-means 時間（保守的な倍率） |
-| シード別到達・倍率 | 各 seed の Lloyd25 を基準にした到達数と倍率の中央値・最小・最大 |
+| 基準 | Faiss k-means 25 反復。仕様上の基準はランダム初期化（`faiss_kmeans@25`、以下 Lloyd25）。k-means++ 版（`faiss_kmeans_pp@25`、以下 Lloyd++25）も別の行として判定 |
+| 同等品質到達 | **e-means の test MSE ≤ 基準の test MSE × 1.01** |
+| 高速化倍率（vs 基準） | 基準の時間 ÷ 到達した e-means 構成のうち最短の時間 |
+| 高速化倍率（vs 同手法最短） | 基準と同じ初期化の k-means が同じ閾値に到達する最短反復数の時間 ÷ 上記 e-means 時間（保守的な倍率） |
+| 到達構成の空クラスタ | 到達と判定された e-means 構成の空クラスタ数（MSE だけでは見えない品質問題の確認） |
+| シード別到達・倍率 | 各 seed の基準を使って判定した到達数と倍率の中央値・最小・最大 |
 | ばらつき | 構成ごとの min / max、時間の変動係数（CV）、test MSE の標準偏差 |
 
 - エポック数の比だけで高速化を判定しません。
@@ -121,7 +123,7 @@ uv run python make_report.py results/<run-name>
 | `results/<run>/raw_results.csv` | 全試行（1 行 = 1 回の学習） | 管理外 |
 | `results/<run>/metadata.json` | 実行環境・設定・公式ソースの SHA / ハッシュ | 管理外 |
 | `reports/<run>/summary.csv` | 構成（dataset × algorithm × passes）ごとの中央値とばらつき | 管理対象 |
-| `reports/<run>/comparison.csv` | データセットごとの同等品質到達判定と倍率 | 管理対象 |
+| `reports/<run>/comparison.csv` | (データセット, 基準) ごとの同等品質到達判定と倍率 | 管理対象 |
 | `reports/<run>/metadata.json` | 再現に必要なメタデータ（`results/` と同一） | 管理対象 |
 | `reports/<run>/report.md` | 上記をまとめた Markdown レポート | 管理対象 |
 
@@ -129,40 +131,48 @@ uv run python make_report.py results/<run-name>
 
 ## 7. 実測結果（本環境）
 
-実行日: 2026-11-11 / CPU: Intel Core Ultra 7 258V（WSL2、論理コア 6）/ 4 スレッド / faiss-cpu 1.16.0 / Faiss ソース `ddc76806` / 既定 `--init native`。
-以下の数値はすべて `reports/` 配下の実測値から転記したものです。計測時の本リポジトリはコミット前の状態でした（`repo_dirty: true`）。
+実行日: 2026-11-11 / CPU: Intel Core Ultra 7 258V（WSL2、論理コア 6）/ 4 スレッド / faiss-cpu 1.16.0 / Faiss ソース `ddc76806` / 本リポジトリ `f6ea70e`（`repo_dirty: false`）/ 既定 `--init native`。
+以下の数値はすべて `reports/` 配下の実測値から転記したものです。秒・MSE はシード（× 反復）の中央値です。
 
-### Medium（200,000 × 64 次元、k = 1,024、5 シード）— `reports/medium_native_t4/`
+### Medium（200,000 × 64 次元、k = 1,024、5 シード）— `reports/medium_t4/`
 
-| データ | Lloyd25 の test MSE / 秒 | e-means 到達 | 到達エポック / 秒 | 倍率 vs Lloyd25 | 倍率 vs k-means 最短到達（反復数） | 到達構成の空クラスタ（中央値） | e-means 最良 MSE / Lloyd25 | シード別到達（倍率 範囲） |
-|---|---|---|---|---|---|---|---|---|
-| gaussian | 54.22 / 9.08 s | yes | 1 / 0.50 s | 18.2× | 3.3×（5 反復） | 0 | 0.999 | 5/5（12.3〜20.7×） |
-| imbalanced | 114.16 / 8.86 s | **NO** | — | — | —（k-means は 10 反復で到達） | — | **1.025** | 1/5 |
-| separated | 206.94 / 7.81 s | yes | 1 / 0.58 s | 13.6× | 3.5×（5 反復） | **41** | 0.657 | 5/5（8.7〜14.9×） |
+| データ | 基準 | 基準の test MSE / 秒 | e-means 到達 | 到達エポック / 秒 | 倍率 vs 基準 | 倍率 vs 同手法最短（反復数） | 到達構成の空クラスタ | e-means 最良 MSE / 基準 | シード別到達 |
+|---|---|---|---|---|---|---|---|---|---|
+| gaussian | Lloyd25 | 54.22 / 7.90 s | yes | 1 / 0.51 s | 15.6× | 2.9×（5） | 0 | 0.999 | 5/5 |
+| gaussian | Lloyd++25 | 54.22 / 8.90 s | yes | 1 / 0.51 s | 17.5× | 5.3×（5） | 0 | 0.999 | 5/5 |
+| imbalanced | Lloyd25 | 114.16 / 7.49 s | **NO** | — | — | —（10） | — | **1.025** | 1/5 |
+| imbalanced | Lloyd++25 | 83.39 / 8.89 s | **NO** | — | — | —（5） | — | **1.404** | 0/5 |
+| separated | Lloyd25 | 206.94 / 6.14 s | yes | 1 / 0.51 s | 12.0× | 3.2×（5） | **41** | 0.657 | 5/5 |
+| separated | Lloyd++25 | 121.26 / 6.59 s | **NO** | — | — | —（5） | — | **1.121** | 0/5 |
 
-### Quick（20,000 × 64 次元、k = 128、3 シード）— `reports/quick_native_t4/`
+### Quick（20,000 × 64 次元、k = 128、3 シード × 3 反復）— `reports/quick_t4_rep3/`
 
-| データ | Lloyd25 の秒 | 到達エポック / 秒 | 倍率 vs Lloyd25 | 倍率 vs k-means 最短到達 | 到達構成の空クラスタ | e-means 最良 MSE / Lloyd25 | シード別到達 |
-|---|---|---|---|---|---|---|---|
-| gaussian | 0.112 s | 1 / 0.018 s | 6.4× | 1.5×（5 反復） | 0 | 0.999 | 3/3 |
-| imbalanced | 0.118 s | 2 / 0.038 s | 3.1× | **0.67×**（5 反復） | 0 | 0.946 | 3/3 |
-| separated | 0.070 s | 1 / 0.019 s | 3.7× | 1.0×（5 反復） | 4 | 0.505 | 3/3 |
+| データ | 基準 | 基準の test MSE / 秒 | e-means 到達 | 到達エポック / 秒 | 倍率 vs 基準 | 倍率 vs 同手法最短（反復数） | 到達構成の空クラスタ | e-means 最良 MSE / 基準 | シード別到達 |
+|---|---|---|---|---|---|---|---|---|---|
+| gaussian | Lloyd25 | 57.61 / 0.137 s | yes | 1 / 0.021 s | 6.5× | 1.3×（5） | 0 | 0.999 | 3/3 |
+| gaussian | Lloyd++25 | 57.62 / 0.147 s | yes | 1 / 0.021 s | 7.0× | 1.7×（5） | 0 | 0.999 | 3/3 |
+| imbalanced | Lloyd25 | 142.33 / 0.144 s | yes | 2 / 0.041 s | 3.5× | **0.69×**（5） | 0 | 0.946 | 3/3 |
+| imbalanced | Lloyd++25 | 98.04 / 0.149 s | **NO** | — | — | —（5） | — | **1.373** | 0/3 |
+| separated | Lloyd25 | 234.98 / 0.068 s | yes | 1 / 0.020 s | 3.4× | 1.2×（5） | 4 | 0.505 | 3/3 |
+| separated | Lloyd++25 | 129.75 / 0.076 s | yes | **10** / 0.161 s | **0.47×** | **0.20×**（5） | 0 | 0.914 | 2/3 |
 
-同条件の再実行（`quick_native_t4_rep3`, 各 seed 3 回）と共通初期値（`quick_shared_t4`）でも傾向は同じでした（vs Lloyd25: 3.2〜7.4×、vs k-means 最短: 0.67〜1.4×）。ただし共通初期値では imbalanced のシード別到達が 2/3 に下がりました。quick 規模では同じ構成の中央値時間が実行間で最大約 1.5 倍変動しており、倍率の小数点以下には意味がありません。
+共通初期値（`reports/quick_shared_t4/`、Lloyd25 のみ）でも、Lloyd25 比 3.5〜6.1×、同手法最短比 0.68〜1.6× と傾向は同じでした（imbalanced のシード別到達は 2/3）。quick 規模では同じ構成の中央値時間が実行間で最大約 1.5 倍変動しており、倍率の小数点以下には意味がありません。
 
 ### 現時点の解釈（この条件の範囲に限る）
 
-1. **「Lloyd25 比」の倍率は過大に見えやすい。** Faiss k-means はほぼ全条件で 5〜10 反復で 25 反復と 1% 以内の test MSE に達しており、それと比べた保守的な倍率は medium で約 3.3〜3.5×、quick で 0.67〜1.5× でした。論文の「約10倍」は CPU・この規模では、比較相手を Lloyd25 に固定した場合にのみ近い値になります。
-2. **e-means の 1 エポックは Lloyd の 1 反復より重い**（gaussian で比較すると medium で約 1.4 倍、quick で約 4 倍）。高速化はエポック数の削減によるもので、小規模ではその効果が小さい（原因は Python 側のオーバーヘッドと推測されるが、未計測）。
-3. **不均衡データ（medium）では Lloyd25 の品質に到達しなかった**（最良でも 2.5% 悪い、シード別 1/5）。quick では逆に e-means が 5% 良く、規模・分布で結論が変わります。
-4. **分離の良いデータでは e-means の最終 MSE が大幅に良い**（Lloyd の 0.5〜0.66 倍）。ただし両者とも理論値（約 64）から遠い局所解であり、差の大半はランダム初期化の Lloyd が局所解に陥ることによる可能性があります（k-means++ の Lloyd とは未比較）。
-5. **1 エポックの e-means は空クラスタを残しやすい**（medium separated で 41/1024、imbalanced で 22）。MSE 基準だけで「到達」と判定される構成でも、実務上は 2〜3 エポック以上が必要な場合があります。
+1. **k-means++ 初期化の Lloyd を相手にすると、クラスタ構造のあるデータで e-means は品質面で負ける。** Medium の imbalanced では Lloyd++ の 5 反復（2.5 秒）で test MSE 83.7 に対し、e-means は 10 エポックでも 118.5（最良でも 1.40 倍悪い）。separated でも 1.12 倍悪く、どのシードでも到達しなかった。Quick の separated だけは e-means 10 エポックが Lloyd++ を上回った（MSE 0.91 倍）が、時間は約 2 倍かかった。
+2. **ランダム初期化の Lloyd に対する e-means の品質面の優位は、主に Lloyd の初期化の弱さによる。** ランダム初期化の Lloyd は separated / imbalanced で大きく悪い局所解に陥る（Medium separated: 206.9 対 Lloyd++ 121.3）。前回「e-means の最終 MSE が大幅に良い」とした結果は、この比較相手に限った話だった。
+3. **クラスタ構造のない gaussian では、主張に近い結果が再現した。** 1 エポックで Lloyd25 / Lloyd++25 と同等の品質に達し、倍率は vs 基準 15.6〜17.5×、vs 同手法最短 2.9〜5.3×（Medium）。
+4. **「25 反復比」の倍率は過大に見えやすい。** Faiss k-means は全条件で 5〜10 反復で 25 反復と 1% 以内の test MSE に達しており、それと比べると倍率は数分の一に縮む。
+5. **e-means の 1 エポックは Lloyd の 1 反復より重い**（gaussian で比較すると Medium で約 1.6 倍、Quick で約 4 倍）。小規模ではエポック数削減の効果が小さい（原因は Python 側のオーバーヘッドと推測されるが、未計測）。
+6. **1 エポックの e-means は空クラスタを残しやすい**（Medium separated で 41/1024、imbalanced で 22）。MSE だけで「到達」と判定される構成でも、実務上は 2〜3 エポック以上が必要な場合がある。
+7. separated / imbalanced では、いずれの手法も理論上の最良値（約 64、単位分散ノイズ × 64 次元）から遠く、3 手法とも局所解にある。
 
 ## 8. 検証上の制約
 
 - **CPU 上の独立ベンチマークであり、論文の GPU 実験（H100、Flash-KMeans との比較、DEEP / ImageNet-CLIP 等の実データ）の再現ではありません。** 論文の約 10 倍という実時間の数値は、本検証の対象外です。
 - 人工データ（3 種類、64 次元）のみ。実データ・高次元・低次元は未検証です。
-- Lloyd 側はランダム初期化のみ。k-means++ 初期化の Lloyd は未比較で、分離の良いデータでの品質差を過大に見せている可能性があります。
+- e-means は公式デフォルトのランダム初期化のみで計測しています。e-means に k-means++ の初期値を与えた場合は未検証です。
 - quick 規模では 1 回の学習が 0.1 秒前後で、Python のオーバーヘッドと計時ノイズの比率が大きくなります。
 - WSL2 上の計測であり、ホスト側の負荷や CPU 周波数の変動を受けます。結果は同一マシン内での相対比較として扱ってください。
 - e-means の計時には、公式デフォルトによる最終エポックのラベル保存のコストが含まれます。
@@ -170,7 +180,7 @@ uv run python make_report.py results/<run-name>
 
 ## 9. 今後の検証課題
 
-- k-means++ 初期化の Faiss k-means、scikit-learn `MiniBatchKMeans` を比較対象に追加
+- e-means に k-means++ の初期値を与えた比較（`init_centroids`）、scikit-learn `MiniBatchKMeans` の追加
 - クラスタ数（k = 256〜16k）・次元（d = 2, 16, 128, 768）・データ数を振ったスケーリング検証
 - 公開実データ（例: SIFT1M、DEEP1M の部分集合）での検証
 - スレッド数（1, 2, 4, 6）による倍率の変化

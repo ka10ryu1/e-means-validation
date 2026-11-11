@@ -38,6 +38,7 @@
 | `--repeats` | 同一seedでの計時ノイズの把握 |
 | k-means 反復数 `5 10 25`、e-means エポック数 `1 2 3 5 10` に拡張（キットは k-means 25 / e-means 2 3 5） | k-means 自身が25反復より前に収束している場合に倍率を過大評価しないため。e-means がどのエポックで到達するかを細かく見るため |
 | `--init shared` | 初期値の違いによる交絡を取り除く比較を可能にする |
+| k-means++ 初期化の Faiss k-means（`faiss_kmeans_pp`）を2つ目の基準として追加（`--kmeans-inits`） | ランダム初期化の Lloyd が局所解に陥ると e-means の品質面の優位が過大に見えるため。キットの Lloyd25（ランダム初期化）基準は維持 |
 | シード別の到達判定・倍率（`per_seed_*`） | 中央値どうしの比較だけでは隠れるばらつきを示す |
 | `comparison.csv`, `report.md`, `reports/<run>/` | 集計をGit管理できる形で保存 |
 | e-means のエポック数を float でも受け付け | 公式は小数エポックをサポート |
