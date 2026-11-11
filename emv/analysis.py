@@ -10,7 +10,9 @@ from pathlib import Path
 
 import numpy as np
 
-KMEANS = "faiss_kmeans"
+KMEANS = "faiss_kmeans"          # Lloyd, random init (Faiss default)
+KMEANS_PP = "faiss_kmeans_pp"    # Lloyd, k-means++ init
+BASELINES = (KMEANS, KMEANS_PP)
 EMEANS = "e_means"
 
 RAW_KEYS = ["dataset", "seed", "repeat", "algorithm", "passes", "init", "run_index",
@@ -92,7 +94,9 @@ def compare(rows: list[dict], summaries: list[dict], baseline_niter: int = 25,
             tolerance: float = 0.01) -> list[dict]:
     """Quality-matched speed per dataset.
 
-    Baseline: Faiss k-means at ``baseline_niter`` iterations. An e-means
+    Baseline: Faiss k-means at ``baseline_niter`` iterations, once per
+    baseline algorithm present (random init is required, k-means++ optional);
+    "fastest k-means" is searched within the same baseline algorithm. An e-means
     configuration "reaches" the baseline when its test MSE is
     <= baseline test MSE * (1 + tolerance). Among reaching configurations the
     fastest one is used. Done twice: on medians across seeds (kit rule), and
@@ -101,56 +105,63 @@ def compare(rows: list[dict], summaries: list[dict], baseline_niter: int = 25,
     out = []
     for dataset in sorted({r["dataset"] for r in rows}):
         ds = [s for s in summaries if s["dataset"] == dataset]
-        base = next((s for s in ds if s["algorithm"] == KMEANS and s["passes"] == baseline_niter),
-                    None)
-        if base is None:
-            raise ValueError(f"{dataset}: no {KMEANS} run with {baseline_niter} iterations")
-        threshold = base["median_test_mse"] * (1 + tolerance)
-        em = [s for s in ds if s["algorithm"] == EMEANS]
-        km = [s for s in ds if s["algorithm"] == KMEANS]
-        reached = [s for s in em if s["median_test_mse"] <= threshold]
-        best = min(reached, key=lambda s: s["median_seconds"]) if reached else None
-        km_best = min((s for s in km if s["median_test_mse"] <= threshold),
-                      key=lambda s: s["median_seconds"])
-        best_ratio = min(s["median_test_mse"] for s in em) / base["median_test_mse"] if em else None
-
-        seed_speedups, n_seeds = [], 0
-        for seed, cfg in sorted(_per_seed(rows, dataset).items()):
-            if (KMEANS, baseline_niter) not in cfg:
-                continue
-            n_seeds += 1
-            b_sec, b_mse = cfg[(KMEANS, baseline_niter)]
-            ok = [v for (alg, _), v in cfg.items()
-                  if alg == EMEANS and v[1] <= b_mse * (1 + tolerance)]
-            if ok:
-                seed_speedups.append(b_sec / max(min(v[0] for v in ok), 1e-9))
-
-        entry = {
-            "dataset": dataset,
-            "baseline": f"{KMEANS}@{baseline_niter}",
-            "baseline_median_test_mse": base["median_test_mse"],
-            "threshold_test_mse": round(threshold, 8),
-            "baseline_median_seconds": base["median_seconds"],
-            "emeans_reached": best is not None,
-            "emeans_best_passes": best["passes"] if best else "",
-            "emeans_best_median_seconds": best["median_seconds"] if best else "",
-            "emeans_best_median_test_mse": best["median_test_mse"] if best else "",
-            "emeans_best_median_empty_clusters": best["median_empty_clusters"] if best else "",
-            "speedup_vs_baseline": (round(base["median_seconds"] / max(best["median_seconds"], 1e-9), 3)
-                                    if best else ""),
-            "kmeans_fastest_niter_within_tol": km_best["passes"],
-            "kmeans_fastest_median_seconds": km_best["median_seconds"],
-            "speedup_vs_fastest_kmeans": (round(km_best["median_seconds"] /
-                                                max(best["median_seconds"], 1e-9), 3)
-                                          if best else ""),
-            "emeans_best_mse_ratio": round(best_ratio, 5) if best_ratio is not None else "",
-            "per_seed_reached": f"{len(seed_speedups)}/{n_seeds}",
-            "per_seed_speedup_median": round(float(np.median(seed_speedups)), 3) if seed_speedups else "",
-            "per_seed_speedup_min": round(min(seed_speedups), 3) if seed_speedups else "",
-            "per_seed_speedup_max": round(max(seed_speedups), 3) if seed_speedups else "",
-        }
-        out.append(entry)
+        for base_alg in BASELINES:
+            km = [s for s in ds if s["algorithm"] == base_alg]
+            base = next((s for s in km if s["passes"] == baseline_niter), None)
+            if base is None:
+                if base_alg == KMEANS:
+                    raise ValueError(
+                        f"{dataset}: no {KMEANS} run with {baseline_niter} iterations")
+                continue  # optional baseline (e.g. k-means++) not measured
+            out.append(_compare_one(rows, ds, dataset, base_alg, km, base,
+                                    baseline_niter, tolerance))
     return out
+
+
+def _compare_one(rows, ds, dataset, base_alg, km, base, baseline_niter, tolerance):
+    threshold = base["median_test_mse"] * (1 + tolerance)
+    em = [s for s in ds if s["algorithm"] == EMEANS]
+    reached = [s for s in em if s["median_test_mse"] <= threshold]
+    best = min(reached, key=lambda s: s["median_seconds"]) if reached else None
+    km_best = min((s for s in km if s["median_test_mse"] <= threshold),
+                  key=lambda s: s["median_seconds"])
+    best_ratio = min(s["median_test_mse"] for s in em) / base["median_test_mse"] if em else None
+
+    seed_speedups, n_seeds = [], 0
+    for seed, cfg in sorted(_per_seed(rows, dataset).items()):
+        if (base_alg, baseline_niter) not in cfg:
+            continue
+        n_seeds += 1
+        b_sec, b_mse = cfg[(base_alg, baseline_niter)]
+        ok = [v for (alg, _), v in cfg.items()
+              if alg == EMEANS and v[1] <= b_mse * (1 + tolerance)]
+        if ok:
+            seed_speedups.append(b_sec / max(min(v[0] for v in ok), 1e-9))
+
+    return {
+        "dataset": dataset,
+        "baseline": f"{base_alg}@{baseline_niter}",
+        "baseline_median_test_mse": base["median_test_mse"],
+        "threshold_test_mse": round(threshold, 8),
+        "baseline_median_seconds": base["median_seconds"],
+        "emeans_reached": best is not None,
+        "emeans_best_passes": best["passes"] if best else "",
+        "emeans_best_median_seconds": best["median_seconds"] if best else "",
+        "emeans_best_median_test_mse": best["median_test_mse"] if best else "",
+        "emeans_best_median_empty_clusters": best["median_empty_clusters"] if best else "",
+        "speedup_vs_baseline": (round(base["median_seconds"] / max(best["median_seconds"], 1e-9), 3)
+                                if best else ""),
+        "kmeans_fastest_niter_within_tol": km_best["passes"],
+        "kmeans_fastest_median_seconds": km_best["median_seconds"],
+        "speedup_vs_fastest_kmeans": (round(km_best["median_seconds"] /
+                                            max(best["median_seconds"], 1e-9), 3)
+                                      if best else ""),
+        "emeans_best_mse_ratio": round(best_ratio, 5) if best_ratio is not None else "",
+        "per_seed_reached": f"{len(seed_speedups)}/{n_seeds}",
+        "per_seed_speedup_median": round(float(np.median(seed_speedups)), 3) if seed_speedups else "",
+        "per_seed_speedup_min": round(min(seed_speedups), 3) if seed_speedups else "",
+        "per_seed_speedup_max": round(max(seed_speedups), 3) if seed_speedups else "",
+    }
 
 
 # ---------------------------------------------------------------- report
@@ -203,20 +214,22 @@ def render_report(metadata: dict, summaries: list[dict], comparisons: list[dict]
         "",
         f"判定規則: {m['quality_rule']}。到達しなかった場合は **NO** と記録し、倍率は算出しない。",
         "到達判定は test MSE のみに基づく。到達構成に空クラスタが残る場合は品質上の注意が必要（`到達構成の空クラスタ` 列）。\n"
-        "`speedup_vs_fastest_kmeans` は、Faiss k-means 自身が同じ閾値に達する最短反復数との比較（保守的な倍率）。",
+        "`speedup_vs_fastest_kmeans` は、基準と同じ手法（同じ初期化）の k-means が同じ閾値に達する最短反復数との比較（保守的な倍率）。",
+        "基準 `faiss_kmeans` は Faiss 既定のランダム初期化、`faiss_kmeans_pp` は k-means++ 初期化（初期化時間も学習時間に含む）。",
         "",
         _table(comparisons, [
             ("dataset", "dataset"),
-            ("baseline_median_test_mse", "Lloyd25 test MSE"),
-            ("baseline_median_seconds", "Lloyd25 秒"),
+            ("baseline", "基準"),
+            ("baseline_median_test_mse", "基準 test MSE"),
+            ("baseline_median_seconds", "基準 秒"),
             ("emeans_reached", "e-means 到達"),
             ("emeans_best_passes", "到達エポック"),
             ("emeans_best_median_seconds", "e-means 秒"),
             ("emeans_best_median_empty_clusters", "到達構成の空クラスタ"),
-            ("speedup_vs_baseline", "倍率 (vs Lloyd25)"),
-            ("kmeans_fastest_niter_within_tol", "k-means 最短到達反復"),
-            ("speedup_vs_fastest_kmeans", "倍率 (vs k-means最短)"),
-            ("emeans_best_mse_ratio", "e-means最良MSE / Lloyd25"),
+            ("speedup_vs_baseline", "倍率 (vs 基準)"),
+            ("kmeans_fastest_niter_within_tol", "同手法の最短到達反復"),
+            ("speedup_vs_fastest_kmeans", "倍率 (vs 同手法最短)"),
+            ("emeans_best_mse_ratio", "e-means最良MSE / 基準"),
             ("per_seed_reached", "シード別到達"),
             ("per_seed_speedup_median", "シード別倍率 中央値"),
             ("per_seed_speedup_min", "最小"),

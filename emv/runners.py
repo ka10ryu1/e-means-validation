@@ -29,12 +29,23 @@ def validate_centers(centers, k: int, dim: int) -> np.ndarray:
     return centers
 
 
-def run_faiss_kmeans(faiss, train, k, seed, niter, init=None):
-    """Faiss Lloyd k-means on all rows (the 256 points/centroid cap is lifted)."""
+KMEANS_INIT_METHODS = {"random": "RANDOM", "kmeanspp": "KMEANS_PLUS_PLUS"}
+
+
+def run_faiss_kmeans(faiss, train, k, seed, niter, init=None, init_method="random"):
+    """Faiss Lloyd k-means on all rows (the 256 points/centroid cap is lifted).
+
+    ``init_method`` selects Faiss' seeding ("random" = Faiss default,
+    "kmeanspp" = k-means++); its cost is inside the timed train() call.
+    Ignored by Faiss when explicit ``init`` centroids are given.
+    """
     n, dim = train.shape
+    if init is not None and init_method != "random":
+        raise ValueError("explicit init centroids make init_method meaningless")
     model = faiss.Kmeans(
         dim, k, niter=niter, seed=seed, verbose=False,
         max_points_per_centroid=n, min_points_per_centroid=1,
+        init_method=getattr(faiss, "ClusteringInitMethod_" + KMEANS_INIT_METHODS[init_method]),
     )
     started = time.perf_counter()
     model.train(train, init_centroids=init)

@@ -67,5 +67,8 @@ def test_official_api_used_by_benchmark(official_source):
         "assert np.array_equal(c, c2), 'shared init should equal the native init'\n"
         "k, _, _ = runners.run_faiss_kmeans(faiss, tr, 8, seed=0, niter=3, init=data.shared_init(tr, 8, 0))\n"
         "assert k.shape == (8, 8)\n"
+        "p, _, _ = runners.run_faiss_kmeans(faiss, tr, 8, seed=0, niter=3, init_method='kmeanspp')\n"
+        "r, _, _ = runners.run_faiss_kmeans(faiss, tr, 8, seed=0, niter=3)\n"
+        "assert p.shape == (8, 8) and not np.array_equal(p, r), 'k-means++ must change the seeding'\n"
         "print('ok')\n")
     assert out.strip() == "ok"

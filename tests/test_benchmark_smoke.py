@@ -24,8 +24,9 @@ def test_smoke_benchmark_and_report(official_source, tmp_path):
             assert (d / name).is_file(), name
     with (out / "raw_results.csv").open() as f:
         rows = list(csv.DictReader(f))
-    assert len(rows) == 2 * 1 * 4
-    assert {r["algorithm"] for r in rows} == {"faiss_kmeans", "e_means"}
+    # 2 datasets x 1 seed x (2 k-means inits x 2 niters + 2 e-means epochs)
+    assert len(rows) == 2 * 1 * 6
+    assert {r["algorithm"] for r in rows} == {"faiss_kmeans", "faiss_kmeans_pp", "e_means"}
     assert all(float(r["seconds"]) > 0 and float(r["test_mse"]) > 0 for r in rows)
 
     meta_text = (out / "metadata.json").read_text()
@@ -40,3 +41,9 @@ def test_smoke_benchmark_and_report(official_source, tmp_path):
     subprocess.run([sys.executable, "make_report.py", str(out), "--report-dir", str(rep2)],
                    cwd=ROOT, check=True, capture_output=True, text=True)
     assert (rep2 / "comparison.csv").read_text() == (rep / "comparison.csv").read_text()
+
+
+def test_shared_init_drops_kmeanspp():
+    from benchmark import parse_args
+    assert parse_args(["--init", "shared"]).kmeans_inits == ["random"]
+    assert parse_args([]).kmeans_inits == ["random", "kmeanspp"]

@@ -64,3 +64,17 @@ def test_summary_spread():
     (s,) = analysis.summarize(rows)
     assert (s["median_seconds"], s["min_seconds"], s["max_seconds"], s["runs"]) == (2.0, 1.0, 3.0, 3)
     assert s["cv_seconds"] == pytest.approx(0.5)
+
+
+def test_kmeanspp_baseline_is_compared_separately():
+    rows = [row("d", 0, "faiss_kmeans", 25, 10.0, 2.0),
+            row("d", 0, "faiss_kmeans", 5, 2.0, 2.0),
+            row("d", 0, "faiss_kmeans_pp", 25, 12.0, 1.0),
+            row("d", 0, "faiss_kmeans_pp", 5, 3.0, 1.005),
+            row("d", 0, "e_means", 2, 1.0, 1.5)]
+    rand, pp = analysis.compare(rows, analysis.summarize(rows))
+    assert rand["baseline"] == "faiss_kmeans@25" and rand["emeans_reached"] is True
+    assert rand["kmeans_fastest_niter_within_tol"] == 5   # searched within random-init only
+    assert pp["baseline"] == "faiss_kmeans_pp@25" and pp["emeans_reached"] is False
+    assert pp["kmeans_fastest_niter_within_tol"] == 5
+    assert pp["emeans_best_mse_ratio"] == pytest.approx(1.5)

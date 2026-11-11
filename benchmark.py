@@ -38,6 +38,10 @@ def parse_args(argv=None):
     p.add_argument("--k", type=int, default=None, help="Override cluster count")
     p.add_argument("--kmeans-niters", nargs="+", type=int, default=[5, 10, 25],
                    help="Faiss k-means iteration counts (must include --baseline-niter)")
+    p.add_argument("--kmeans-inits", nargs="+", choices=("random", "kmeanspp"),
+                   default=["random", "kmeanspp"],
+                   help="Faiss k-means seeding: random (Faiss default, required as the "
+                        "baseline) and/or kmeanspp (k-means++). kmeanspp is dropped with --init shared")
     p.add_argument("--emeans-epochs", nargs="+", type=float, default=[1, 2, 3, 5, 10],
                    help="NumpyEmeans nepochs values (kit default was 2 3 5)")
     p.add_argument("--baseline-niter", type=int, default=25)
@@ -63,6 +67,10 @@ def parse_args(argv=None):
         p.error("--repeats must be >= 1")
     if args.baseline_niter not in args.kmeans_niters:
         p.error("--kmeans-niters must include --baseline-niter")
+    if "random" not in args.kmeans_inits:
+        p.error("--kmeans-inits must include random (the baseline)")
+    if args.init == "shared" and "kmeanspp" in args.kmeans_inits:
+        args.kmeans_inits = ["random"]  # shared centroids replace any seeding method
     args.emeans_epochs = [int(e) if float(e).is_integer() else e for e in args.emeans_epochs]
     if args.seeds is None:
         args.seeds = DEFAULT_SEEDS[args.profile]
@@ -142,7 +150,7 @@ def main(argv=None):
         "profile": args.profile, "settings": settings, "datasets": datasets,
         "seeds": args.seeds, "repeats": args.repeats, "threads": args.threads,
         "thread_env": {v: os.environ.get(v) for v in THREAD_ENV},
-        "kmeans_niters": args.kmeans_niters, "emeans_epochs": args.emeans_epochs,
+        "kmeans_niters": args.kmeans_niters, "kmeans_inits": args.kmeans_inits, "emeans_epochs": args.emeans_epochs,
         "baseline_niter": args.baseline_niter, "tolerance": args.tolerance,
         "init": args.init,
         "init_note": ("Faiss k-means と e-means はそれぞれ独自の乱数でk点を学習データから抽出"
@@ -158,7 +166,8 @@ def main(argv=None):
         "repo_commit": git("rev-parse", "HEAD"),
         "repo_dirty": bool(git("status", "--porcelain", "--", ".", ":!results", ":!reports")),
         "e_means_source": source,
-        "quality_rule": (f"test MSE <= Faiss k-means {args.baseline_niter}反復の test MSE × "
+        "quality_rule": (f"test MSE <= 基準（Faiss k-means {args.baseline_niter}反復。ランダム初期化、"
+                         f"計測時は k-means++ 初期化も）の test MSE × "
                          f"{1 + args.tolerance:g}（中央値どうし／シード別の両方で判定）"),
         "timing": "training only (train() call), time.perf_counter; evaluation excluded",
     }
@@ -168,7 +177,9 @@ def main(argv=None):
                                                "threads", "init", "faiss_version")}, indent=2))
     print(f"e-means source: {source['faiss_source_path']} @ {source['faiss_source_sha']}")
 
-    configs = ([(analysis.KMEANS, n) for n in args.kmeans_niters]
+    kmeans_algs = {analysis.KMEANS: "random", analysis.KMEANS_PP: "kmeanspp"}
+    configs = ([(alg, n) for alg, how in kmeans_algs.items() if how in args.kmeans_inits
+                for n in args.kmeans_niters]
                + [(analysis.EMEANS, e) for e in args.emeans_epochs])
     rows, run_index = [], 0
     for ds_index, dataset in enumerate(datasets):
@@ -191,9 +202,9 @@ def main(argv=None):
                     order = list(rng.permutation(len(configs)))
                 for position, ci in enumerate(order):
                     alg, passes = configs[ci]
-                    if alg == analysis.KMEANS:
+                    if alg in kmeans_algs:
                         centers, seconds, extra = runners.run_faiss_kmeans(
-                            faiss, train, settings["k"], seed, passes, init)
+                            faiss, train, settings["k"], seed, passes, init, kmeans_algs[alg])
                     else:
                         centers, seconds, extra = runners.run_emeans(
                             NumpyEmeans, train, settings["k"], seed, passes, init)
@@ -218,16 +229,17 @@ def main(argv=None):
     metadata["finished_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     write_outputs(out, report_dir, metadata, summaries, comparisons)
 
-    print(f"\n=== Quality-matched speed (test MSE <= Lloyd{args.baseline_niter} x "
-          f"{1 + args.tolerance:g}, medians) ===")
+    print(f"\n=== Quality-matched speed (test MSE <= baseline x {1 + args.tolerance:g}, "
+          f"medians) ===")
     for c in comparisons:
         if c["emeans_reached"]:
-            print(f"{c['dataset']:>11}: {c['speedup_vs_baseline']:.2f}x at e-means "
-                  f"{c['emeans_best_passes']} epochs (Lloyd MSE {c['baseline_median_test_mse']:.5f},"
+            print(f"{c['dataset']:>11} vs {c['baseline']:<20}: "
+                  f"{c['speedup_vs_baseline']:.2f}x at e-means "
+                  f"{c['emeans_best_passes']} epochs (baseline MSE {c['baseline_median_test_mse']:.5f},"
                   f" e-means MSE {c['emeans_best_median_test_mse']:.5f}); "
                   f"per-seed reached {c['per_seed_reached']}")
         else:
-            print(f"{c['dataset']:>11}: e-means did NOT reach Lloyd{args.baseline_niter} "
+            print(f"{c['dataset']:>11} vs {c['baseline']:<20}: e-means did NOT reach baseline "
                   f"held-out MSE within {args.tolerance:.0%} (best ratio "
                   f"{c['emeans_best_mse_ratio']}); per-seed reached {c['per_seed_reached']}")
     print(f"\nRaw CSV + metadata: {out}\nReport: {report_dir / 'report.md'}")
