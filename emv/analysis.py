@@ -18,7 +18,8 @@ EMEANS_PP = "e_means_pp"          # NumpyEmeans from the Faiss k-means++ centroi
 CANDIDATES = (EMEANS, EMEANS_PP)
 
 RAW_KEYS = ["dataset", "seed", "repeat", "algorithm", "passes", "init", "run_index",
-            "block_position", "seconds", "train_mse", "test_mse", "empty_clusters",
+            "block_position", "seconds", "cpu_seconds", "main_thread_cpu_seconds",
+            "loadavg_1m", "train_mse", "test_mse", "empty_clusters",
             "batch_size", "alpha0", "batch_law", "splits"]
 
 
@@ -39,6 +40,9 @@ def read_raw_csv(path: Path) -> list[dict]:
                 r[key] = int(float(r[key]))
             for key in ("seconds", "train_mse", "test_mse"):
                 r[key] = float(r[key])
+            for key in ("cpu_seconds", "main_thread_cpu_seconds", "loadavg_1m"):
+                # absent in results produced before these diagnostics existed
+                r[key] = float(r[key]) if r.get(key) not in (None, "") else None
             rows.append(r)
     return rows
 
@@ -47,6 +51,32 @@ def _stats(values) -> tuple[float, float, float, float]:
     a = np.asarray(values, dtype=np.float64)
     std = float(a.std(ddof=1)) if len(a) > 1 else 0.0
     return float(np.median(a)), float(a.min()), float(a.max()), std
+
+
+def _median_opt(members, key, ndigits):
+    vals = [m.get(key) for m in members if m.get(key) not in (None, "")]
+    return round(float(np.median(np.asarray(vals, dtype=np.float64))), ndigits) if vals else ""
+
+
+def timing_diagnostics(rows: list[dict]) -> list[dict]:
+    """Per algorithm: median CPU/wall ratios and load average over all runs."""
+    out = []
+    for alg in sorted({r["algorithm"] for r in rows}):
+        rs = [r for r in rows if r["algorithm"] == alg
+              and r.get("cpu_seconds") not in (None, "") and float(r["seconds"]) > 0]
+        if not rs:
+            continue
+        cpu = [float(r["cpu_seconds"]) / float(r["seconds"]) for r in rs]
+        main = [float(r["main_thread_cpu_seconds"]) / float(r["seconds"]) for r in rs]
+        load = [float(r["loadavg_1m"]) for r in rs if r.get("loadavg_1m") not in (None, "")]
+        out.append({
+            "algorithm": alg, "runs": len(rs),
+            "median_process_cpu_per_wall": round(float(np.median(cpu)), 3),
+            "median_main_thread_cpu_per_wall": round(float(np.median(main)), 3),
+            "median_loadavg_1m": round(float(np.median(load)), 2) if load else "",
+            "max_loadavg_1m": round(max(load), 2) if load else "",
+        })
+    return out
 
 
 def summarize(rows: list[dict]) -> list[dict]:
@@ -67,6 +97,8 @@ def summarize(rows: list[dict]) -> list[dict]:
             "min_seconds": round(sec_min, 5),
             "max_seconds": round(sec_max, 5),
             "cv_seconds": round(sec_std / sec_med, 4) if sec_med > 0 else "",
+            "median_cpu_seconds": _median_opt(members, "cpu_seconds", 5),
+            "median_main_thread_cpu_seconds": _median_opt(members, "main_thread_cpu_seconds", 5),
             "median_train_mse": round(float(np.median([r["train_mse"] for r in members])), 8),
             "median_test_mse": round(mse_med, 8),
             "min_test_mse": round(mse_min, 8),
@@ -191,7 +223,31 @@ def _table(rows: list[dict], cols: list[tuple[str, str]]) -> str:
     return "\n".join([head, sep, *body])
 
 
-def render_report(metadata: dict, summaries: list[dict], comparisons: list[dict]) -> str:
+def _diagnostics_section(m: dict, diagnostics: list[dict] | None) -> list[str]:
+    if not diagnostics:
+        return []
+    return [
+        "## 計時の診断",
+        "",
+        "CPU 時間 / 経過時間 の中央値（プロセス全体・メインスレッド）と、各実行直前の 1 分ロードアベレージ"
+        "（本プロセス自身のスレッドを含む）。他の回と比べて経過時間だけが伸び、CPU 時間/経過時間 が下がっていれば"
+        "CPU の取り合い（待ち）、比が変わらず時間全体が伸びていればコア自体の遅さ（コア種別・クロック）を示唆する。"
+        "WSL2 内では CPU クロックは観測できない。",
+        "",
+        f"- ロードアベレージ（1/5/15 分） 開始時: {m.get('loadavg_start')}  / 終了時: {m.get('loadavg_end')}",
+        "",
+        _table(diagnostics, [
+            ("algorithm", "algorithm"), ("runs", "runs"),
+            ("median_process_cpu_per_wall", "プロセスCPU/経過"),
+            ("median_main_thread_cpu_per_wall", "メインスレッドCPU/経過"),
+            ("median_loadavg_1m", "load 1m 中央値"), ("max_loadavg_1m", "load 1m 最大"),
+        ]),
+        "",
+    ]
+
+
+def render_report(metadata: dict, summaries: list[dict], comparisons: list[dict],
+                  diagnostics: list[dict] | None = None) -> str:
     m = metadata
     src = m.get("e_means_source", {})
     s = m["settings"]
@@ -258,6 +314,7 @@ def render_report(metadata: dict, summaries: list[dict], comparisons: list[dict]
             ("median_empty_clusters", "空クラスタ 中央値"), ("max_empty_clusters", "空 max"),
         ]),
         "",
+        *_diagnostics_section(metadata, diagnostics),
         "## 注意事項",
         "",
         "- 時間は `train()` 呼び出しのみ（`time.perf_counter`）。データ生成・評価は含まない。",

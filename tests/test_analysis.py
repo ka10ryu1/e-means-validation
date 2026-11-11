@@ -92,3 +92,29 @@ def test_each_emeans_variant_gets_its_own_row():
     assert got[("faiss_kmeans_pp@25", "e_means")]["emeans_reached"] is False
     pp = got[("faiss_kmeans_pp@25", "e_means_pp")]
     assert pp["emeans_reached"] is True and pp["speedup_vs_baseline"] == pytest.approx(5.0)
+
+
+def test_timer_separates_waiting_from_work():
+    import time
+
+    from emv.runners import Timer
+    with Timer() as t:
+        time.sleep(0.05)          # waiting: wall time without CPU time
+    assert t.seconds >= 0.05 and t.cpu_seconds < 0.03
+    with Timer() as t:
+        x = 0
+        while time.perf_counter() - t._wall < 0.05:
+            x += 1                # busy: CPU time ~ wall time on the main thread
+    assert t.main_thread_cpu_seconds > 0.5 * t.seconds
+
+
+def test_timing_diagnostics_and_old_csv_compat():
+    rows = [dict(row("d", 0, "e_means", 1, 2.0, 1.0), cpu_seconds=1.0,
+                 main_thread_cpu_seconds=0.5, loadavg_1m=3.0),
+            dict(row("d", 0, "faiss_kmeans", 25, 1.0, 1.0), cpu_seconds=None,
+                 main_thread_cpu_seconds=None, loadavg_1m=None)]   # pre-diagnostics row
+    (d,) = analysis.timing_diagnostics(rows)
+    assert d["algorithm"] == "e_means"
+    assert d["median_process_cpu_per_wall"] == 0.5 and d["median_main_thread_cpu_per_wall"] == 0.25
+    s = {x["algorithm"]: x for x in analysis.summarize(rows)}
+    assert s["faiss_kmeans"]["median_cpu_seconds"] == "" and s["e_means"]["median_cpu_seconds"] == 1.0

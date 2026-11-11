@@ -25,7 +25,8 @@ def main(argv=None):
     comparisons = analysis.compare(rows, summaries, metadata["baseline_niter"],
                                    metadata["tolerance"])
     report_dir = args.report_dir or ROOT / "reports" / metadata["run_name"]
-    write_outputs(args.results, report_dir, metadata, summaries, comparisons)
+    write_outputs(args.results, report_dir, metadata, summaries, comparisons,
+                  analysis.timing_diagnostics(rows))
     print(f"Report: {report_dir / 'report.md'}")
 
 

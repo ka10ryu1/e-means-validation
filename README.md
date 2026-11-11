@@ -128,7 +128,9 @@ uv run python make_report.py results/<run-name>
 | `reports/<run>/metadata.json` | 再現に必要なメタデータ（`results/` と同一） | 管理対象 |
 | `reports/<run>/report.md` | 上記をまとめた Markdown レポート | 管理対象 |
 
-`raw_results.csv` の主な列: `dataset, seed, repeat, algorithm, passes, init, run_index, block_position, seconds, train_mse, test_mse, empty_clusters, batch_size, alpha0, batch_law, splits`（`batch_size` 以降は e-means のみ）。
+`raw_results.csv` の主な列: `dataset, seed, repeat, algorithm, passes, init, run_index, block_position, seconds, cpu_seconds, main_thread_cpu_seconds, loadavg_1m, train_mse, test_mse, empty_clusters, batch_size, alpha0, batch_law, splits`（`batch_size` 以降は e-means のみ）。
+
+計時の診断: `cpu_seconds`（プロセス全体の CPU 時間）、`main_thread_cpu_seconds`（メインスレッドの CPU 時間）、`loadavg_1m`（各実行直前の 1 分ロードアベレージ）を記録し、`report.md` の「計時の診断」節にアルゴリズム別の CPU 時間/経過時間 を示します。経過時間だけが伸びて CPU 時間/経過時間 が下がれば CPU の取り合い（待ち）、比が変わらず全体が伸びればコア自体の遅さ（コア種別・クロック）を示唆します。WSL2 内では CPU クロックは観測できないため記録しません。
 
 ## 7. 実測結果（本環境）
 

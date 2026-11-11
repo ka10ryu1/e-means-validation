@@ -29,6 +29,9 @@ def test_smoke_benchmark_and_report(official_source, tmp_path):
     assert {r["algorithm"] for r in rows} == {"faiss_kmeans", "faiss_kmeans_pp",
                                               "e_means", "e_means_pp"}
     assert all(float(r["seconds"]) > 0 and float(r["test_mse"]) > 0 for r in rows)
+    # timing diagnostics recorded for every run
+    assert all(float(r["cpu_seconds"]) > 0 and float(r["main_thread_cpu_seconds"]) > 0
+               and float(r["loadavg_1m"]) >= 0 for r in rows)
 
     meta_text = (out / "metadata.json").read_text()
     assert str(ROOT) not in meta_text, "metadata must not contain absolute repo paths"
@@ -36,6 +39,8 @@ def test_smoke_benchmark_and_report(official_source, tmp_path):
     assert meta["threads"] == 1 and meta["thread_env"]["OMP_NUM_THREADS"] == "1"
     assert meta["e_means_source"]["faiss_source_matches_pin"] is True
     assert "e-means 検証レポート" in (rep / "report.md").read_text()
+    assert "## 計時の診断" in (rep / "report.md").read_text()
+    assert meta["loadavg_start"] is not None and meta["loadavg_end"] is not None
 
     # make_report.py regenerates identical comparison from raw data
     rep2 = tmp_path / "rep2"

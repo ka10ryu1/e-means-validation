@@ -137,6 +137,12 @@ def main(argv=None):
         except (OSError, subprocess.CalledProcessError):
             return None
 
+    def loadavg():
+        try:
+            return [float(v) for v in Path("/proc/loadavg").read_text().split()[:3]]
+        except (OSError, ValueError):
+            return None
+
     def cpu_model():
         try:
             for line in Path("/proc/cpuinfo").read_text().splitlines():
@@ -180,6 +186,11 @@ def main(argv=None):
                          f"計測時は k-means++ 初期化も）の test MSE × "
                          f"{1 + args.tolerance:g}（中央値どうし／シード別の両方で判定）"),
         "timing": "training only (train() call), time.perf_counter; evaluation excluded",
+        "timing_diagnostics": ("cpu_seconds = process CPU time (all threads), "
+                               "main_thread_cpu_seconds = calling-thread CPU time, "
+                               "loadavg_1m = /proc/loadavg before each run (includes this process). "
+                               "CPU clock is not observable inside WSL2 and is not recorded."),
+        "loadavg_start": loadavg(),
     }
     (out / "metadata.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False),
                                        encoding="utf-8")
@@ -214,6 +225,7 @@ def main(argv=None):
                     order = list(rng.permutation(len(configs)))
                 for position, ci in enumerate(order):
                     alg, passes = configs[ci]
+                    load = loadavg()
                     if alg in kmeans_algs:
                         centers, seconds, extra = runners.run_faiss_kmeans(
                             faiss, train, settings["k"], seed, passes, init, kmeans_algs[alg])
@@ -226,7 +238,9 @@ def main(argv=None):
                     rows.append(dict(
                         dataset=dataset, seed=seed, repeat=repeat, algorithm=alg, passes=passes,
                         init=args.init, run_index=run_index, block_position=position,
-                        seconds=round(seconds, 6), train_mse=round(train_mse, 8),
+                        seconds=round(seconds, 6), cpu_seconds=extra.get("cpu_seconds", ""),
+                        main_thread_cpu_seconds=extra.get("main_thread_cpu_seconds", ""),
+                        loadavg_1m=load[0] if load else "", train_mse=round(train_mse, 8),
                         test_mse=round(test_mse, 8), empty_clusters=empty,
                         batch_size=extra.get("batch_size", ""), alpha0=extra.get("alpha0", ""),
                         batch_law=extra.get("batch_law", ""), splits=extra.get("splits", "")))
@@ -239,8 +253,10 @@ def main(argv=None):
 
     summaries = analysis.summarize(rows)
     comparisons = analysis.compare(rows, summaries, args.baseline_niter, args.tolerance)
+    metadata["loadavg_end"] = loadavg()
     metadata["finished_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    write_outputs(out, report_dir, metadata, summaries, comparisons)
+    write_outputs(out, report_dir, metadata, summaries, comparisons,
+                  analysis.timing_diagnostics(rows))
 
     print(f"\n=== Quality-matched speed (test MSE <= baseline x {1 + args.tolerance:g}, "
           f"medians) ===")
@@ -258,12 +274,12 @@ def main(argv=None):
     print(f"\nRaw CSV + metadata: {out}\nReport: {report_dir / 'report.md'}")
 
 
-def write_outputs(out, report_dir, metadata, summaries, comparisons):
+def write_outputs(out, report_dir, metadata, summaries, comparisons, diagnostics=None):
     import json
 
     from emv import analysis
 
-    report = analysis.render_report(metadata, summaries, comparisons)
+    report = analysis.render_report(metadata, summaries, comparisons, diagnostics)
     for d in (out, report_dir):
         d.mkdir(parents=True, exist_ok=True)
         analysis.write_csv(d / "summary.csv", summaries)

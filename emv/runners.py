@@ -10,6 +10,31 @@ import time
 import numpy as np
 
 
+class Timer:
+    """Wall time plus CPU time of the whole process and of the calling thread.
+
+    Diagnostics for timing anomalies: if wall time grows but CPU time does
+    not, the process was waiting (contention); if CPU time grows with it, the
+    work itself ran slower (core type / clock). Overhead: six clock reads.
+    """
+
+    def __enter__(self):
+        self._wall = time.perf_counter()
+        self._cpu = time.process_time()
+        self._thread = time.thread_time()
+        return self
+
+    def __exit__(self, *exc):
+        self.seconds = time.perf_counter() - self._wall
+        self.cpu_seconds = time.process_time() - self._cpu
+        self.main_thread_cpu_seconds = time.thread_time() - self._thread
+        return False
+
+    def info(self) -> dict:
+        return {"cpu_seconds": round(self.cpu_seconds, 6),
+                "main_thread_cpu_seconds": round(self.main_thread_cpu_seconds, 6)}
+
+
 def score(faiss, x: np.ndarray, centers: np.ndarray, batch: int = 4096):
     """Exact nearest-final-center mean squared L2 error and empty cluster count."""
     sq_error = 0.0
@@ -47,10 +72,9 @@ def run_faiss_kmeans(faiss, train, k, seed, niter, init=None, init_method="rando
         max_points_per_centroid=n, min_points_per_centroid=1,
         init_method=getattr(faiss, "ClusteringInitMethod_" + KMEANS_INIT_METHODS[init_method]),
     )
-    started = time.perf_counter()
-    model.train(train, init_centroids=init)
-    elapsed = time.perf_counter() - started
-    return validate_centers(model.centroids, k, dim), elapsed, {}
+    with Timer() as t:
+        model.train(train, init_centroids=init)
+    return validate_centers(model.centroids, k, dim), t.seconds, t.info()
 
 
 def kmeanspp_init(faiss, x, k, seed):
@@ -79,13 +103,14 @@ def run_emeans(NumpyEmeans, train, k, seed, nepochs, init=None, init_method="ran
     if init_method == "kmeanspp" and (init is not None or faiss is None):
         raise ValueError("kmeanspp init needs faiss and no explicit init centroids")
     model = NumpyEmeans(dim, k, seed=seed, nepochs=nepochs, verbose=False)
-    started = time.perf_counter()
-    if init_method == "kmeanspp":
-        init = kmeanspp_init(faiss, train, k, seed)
-    centers, _ = model.train(train, init_centroids=init)
-    elapsed = time.perf_counter() - started
+    with Timer() as t:
+        if init_method == "kmeanspp":
+            init = kmeanspp_init(faiss, train, k, seed)
+        centers, _ = model.train(train, init_centroids=init)
+    elapsed = t.seconds
     recipe = model.recipe or {}
     info = {
+        **t.info(),
         "batch_size": recipe.get("batch_size"),
         "alpha0": recipe.get("alpha0"),
         "batch_law": recipe.get("batch_law"),
