@@ -10,6 +10,10 @@ reported: this is a diagnostic, not a benchmark.
 modification, not the official algorithm; see emv/revival.py). 0 is the
 official behaviour and is always the only value used with threshold 0.
 
+``--snapshots`` also stores, at every check, each centroid's EMA mass, nearest
+blob and how many of that blob's training rows it receives
+(results/<run>/snapshots.csv; read-only, training unchanged).
+
 Example:
     uv run python diagnose_revival.py --profile medium --dataset imbalanced \\
         --imbalance-exponent 1.0 --thresholds 0.1 0 --run-name rev_imb10
@@ -25,7 +29,7 @@ ROOT = Path(__file__).resolve().parent
 THREAD_ENV = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
 
 RUN_KEYS = ["dataset", "imbalance_exponent", "dim", "k", "algorithm", "unused_threshold",
-            "warmup_checks", "batch_law", "batch_size", "passes", "seed", "test_mse", "train_mse",
+            "warmup_checks", "batch_law", "batch_size", "alpha0", "passes", "seed", "test_mse", "train_mse",
             "empty_clusters", "splits", "checks", "checks_with_split", "events",
             "events_epoch0", "events_first10pct", "median_step_fraction",
             "target_mass_ratio_median", "target_on_shared_blob", "target_sole_on_blob",
@@ -49,6 +53,8 @@ def parse_args(argv=None):
                    help="unused_threshold values (0 disables revival)")
     p.add_argument("--warmup-checks", nargs="+", type=int, default=[0],
                    help="Skip the first N revival checks (our modification; 0 = official)")
+    p.add_argument("--snapshots", action="store_true",
+                   help="Store per-centroid mass/blob snapshots at every check")
     p.add_argument("--batch-law", choices=("auto", "throughput", "quality"), default="auto")
     p.add_argument("--kmeans-niter", type=int, default=25,
                    help="Faiss k-means++ reference iterations (0 to skip)")
@@ -85,7 +91,9 @@ def main(argv=None):
     centers_true, prob = truth["centers"], truth["prob"]
     if any(w < 0 for w in args.warmup_checks):
         raise SystemExit("--warmup-checks must be >= 0")
-    recorders = {w: revival.make_recorder(NumpyEmeans, faiss, centers_true, prob, warmup_checks=w)
+    snap = dict(train=train, train_group=truth["train_group"]) if args.snapshots else {}
+    recorders = {w: revival.make_recorder(NumpyEmeans, faiss, centers_true, prob, warmup_checks=w,
+                                          **snap)
                  for w in {0, *args.warmup_checks}}
 
     out = ROOT / "results" / args.run_name
@@ -103,7 +111,7 @@ def main(argv=None):
     base = dict(dataset=args.dataset,
                 imbalance_exponent=args.imbalance_exponent if args.dataset == "imbalanced" else "",
                 dim=dim, k=k)
-    rows, events, checks = [], [], []
+    rows, events, checks, snapshots = [], [], [], []
 
     def finish(row, centers):
         train_mse, empty = runners.score(faiss, train, centers)
@@ -137,11 +145,13 @@ def main(argv=None):
                 tag = dict(unused_threshold=thr, warmup_checks=warmup, passes=passes, seed=seed)
                 events += [dict(tag, **e) for e in model.events]
                 checks += [dict(tag, **c) for c in model.checks]
+                snapshots += [dict(tag, **c) for c in model.snapshots]
                 summary = revival.event_summary(model.events, model.checks,
                                                 model._unused_threshold)
                 assert summary["events"] == model.n_splits, "recorder missed a split"
                 finish(dict(base, algorithm="e_means_pp", batch_law=model.recipe["batch_law"],
-                            batch_size=model.recipe["batch_size"], splits=model.n_splits,
+                            batch_size=model.recipe["batch_size"],
+                            alpha0=model.recipe["alpha0"], splits=model.n_splits,
                             **tag, **summary), runners.validate_centers(centers, k, dim))
         analysis.write_csv(out / "runs.csv", rows, RUN_KEYS)
 
@@ -150,13 +160,15 @@ def main(argv=None):
         analysis.write_csv(out / "events.csv", events, tag_keys + revival.EVENT_KEYS)
     if checks:
         analysis.write_csv(out / "checks.csv", checks, tag_keys + revival.CHECK_KEYS)
+    if snapshots:
+        analysis.write_csv(out / "snapshots.csv", snapshots, tag_keys + revival.SNAPSHOT_KEYS)
     analysis.write_csv(report_dir / "runs.csv", rows, RUN_KEYS)
     metadata = dict(
         run_name=args.run_name, command=["python", *sys.argv],
         started_note="quality-only diagnostic; no timing recorded",
         profile=args.profile, settings=settings, dataset=args.dataset,
         imbalance_exponent=args.imbalance_exponent, seeds=args.seeds, epochs=args.epochs,
-        thresholds=args.thresholds, warmup_checks=args.warmup_checks, batch_law=args.batch_law, kmeans_niter=args.kmeans_niter,
+        thresholds=args.thresholds, warmup_checks=args.warmup_checks, snapshots=args.snapshots, batch_law=args.batch_law, kmeans_niter=args.kmeans_niter,
         threads=args.threads, data_seed=data.DATA_SEED,
         finished_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         faiss_version=getattr(faiss, "__version__", "unknown"), numpy_version=np.__version__,

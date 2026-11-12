@@ -83,3 +83,30 @@ def test_warmup_skips_checks_without_drawing(official_source):
     assert all(c["nsplit"] == 0 for c in late.checks[:3])
     assert all(e["check"] >= 3 for e in late.events)
     assert sum(c["nsplit"] for c in late.checks) == late.n_splits
+
+
+def test_snapshots_are_read_only_and_consistent(official_source):
+    import faiss
+
+    from emv import official, revival, runners
+    NumpyEmeans = official.load_official_emeans(faiss)
+    tr, _, truth = data.synthetic_truth("imbalanced", 4000, 10, 16, 32)
+    init = runners.kmeanspp_init(faiss, tr, 32, seed=0)
+    kw = dict(seed=0, nepochs=3, batch_size=256, unused_threshold=0.5)
+    plain = NumpyEmeans(16, 32, **kw)
+    cls = revival.make_recorder(NumpyEmeans, faiss, truth["centers"], truth["prob"],
+                                train=tr, train_group=truth["train_group"])
+    rec = cls(16, 32, **kw)
+    c_plain, _ = plain.train(tr, init_centroids=init)
+    c_rec, _ = rec.train(tr, init_centroids=init)
+    assert np.array_equal(c_plain, c_rec) and plain.n_splits == rec.n_splits
+
+    assert len(rec.snapshots) == len(rec.checks) * 32
+    first = [s for s in rec.snapshots if s["check"] == 0]
+    assert np.isclose(np.mean([s["mass_ratio"] for s in first]), 1.0, atol=1e-4)
+    # centroids sharing a blob split its rows: captures of one blob sum to <= 1
+    by_blob = {}
+    for s in first:
+        by_blob[s["blob"]] = by_blob.get(s["blob"], 0.0) + s["capture"]
+    assert all(0 <= v <= 1 + 1e-9 for v in by_blob.values())
+    assert all(0 <= s["purity"] <= 1 for s in first)
