@@ -28,8 +28,28 @@ def synthetic_data(name: str, ntrain: int, ntest: int, dim: int, k: int,
     imbalanced: same blobs, cluster sizes follow a power law (rank^-imbalance_exponent;
                 the kit uses 1.3, and 0 gives the same sizes as separated)
     """
+    train, test, _ = _generate(name, ntrain, ntest, dim, k, imbalance_exponent)
+    return train, test
+
+
+def synthetic_truth(name: str, ntrain: int, ntest: int, dim: int, k: int,
+                    imbalance_exponent: float = IMBALANCE_EXPONENT):
+    """Same draws as ``synthetic_data`` plus the generating truth (diagnostics only).
+
+    Returns ``(train, test, truth)`` with ``truth = {"centers", "prob",
+    "train_group"}``: true blob centers (k, dim), blob probabilities, and the
+    blob each training row was drawn from. Not defined for "gaussian".
+    """
+    if name == "gaussian":
+        raise ValueError("gaussian has no cluster structure")
+    return _generate(name, ntrain, ntest, dim, k, imbalance_exponent)
+
+
+def _generate(name, ntrain, ntest, dim, k, imbalance_exponent):
+    # The random-number call order is the kit's; do not reorder.
     rng = np.random.default_rng(DATA_SEED)
     count = ntrain + ntest
+    truth = None
     if name == "gaussian":
         data = rng.standard_normal((count, dim)).astype(np.float32)
     else:
@@ -43,7 +63,8 @@ def synthetic_data(name: str, ntrain: int, ntest: int, dim: int, k: int,
             raise ValueError(name)
         group = rng.choice(k, size=count, p=prob)
         data = centers[group] + rng.standard_normal((count, dim)).astype(np.float32)
-    return np.ascontiguousarray(data[:ntrain]), np.ascontiguousarray(data[ntrain:])
+        truth = {"centers": centers, "prob": prob, "train_group": group[:ntrain]}
+    return np.ascontiguousarray(data[:ntrain]), np.ascontiguousarray(data[ntrain:]), truth
 
 
 def real_embeddings(path: Path, ntrain: int, ntest: int):
