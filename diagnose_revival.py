@@ -6,6 +6,10 @@ revival check (emv/revival.py; training is bit-identical to the plain class).
 Synthetic data only, because the true blobs are needed. No timing is
 reported: this is a diagnostic, not a benchmark.
 
+``--warmup-checks N ...`` adds runs that skip the first N revival checks (our
+modification, not the official algorithm; see emv/revival.py). 0 is the
+official behaviour and is always the only value used with threshold 0.
+
 Example:
     uv run python diagnose_revival.py --profile medium --dataset imbalanced \\
         --imbalance-exponent 1.0 --thresholds 0.1 0 --run-name rev_imb10
@@ -21,7 +25,7 @@ ROOT = Path(__file__).resolve().parent
 THREAD_ENV = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
 
 RUN_KEYS = ["dataset", "imbalance_exponent", "dim", "k", "algorithm", "unused_threshold",
-            "batch_law", "batch_size", "passes", "seed", "test_mse", "train_mse",
+            "warmup_checks", "batch_law", "batch_size", "passes", "seed", "test_mse", "train_mse",
             "empty_clusters", "splits", "checks", "checks_with_split", "events",
             "events_epoch0", "events_first10pct", "median_step_fraction",
             "target_mass_ratio_median", "target_on_shared_blob", "target_sole_on_blob",
@@ -43,6 +47,8 @@ def parse_args(argv=None):
     p.add_argument("--epochs", nargs="+", type=float, default=[1, 3, 10])
     p.add_argument("--thresholds", nargs="+", type=float, default=[0.1, 0.0],
                    help="unused_threshold values (0 disables revival)")
+    p.add_argument("--warmup-checks", nargs="+", type=int, default=[0],
+                   help="Skip the first N revival checks (our modification; 0 = official)")
     p.add_argument("--batch-law", choices=("auto", "throughput", "quality"), default="auto")
     p.add_argument("--kmeans-niter", type=int, default=25,
                    help="Faiss k-means++ reference iterations (0 to skip)")
@@ -77,7 +83,10 @@ def main(argv=None):
     train, test, truth = data.synthetic_truth(args.dataset, **settings,
                                               imbalance_exponent=args.imbalance_exponent)
     centers_true, prob = truth["centers"], truth["prob"]
-    Recorder = revival.make_recorder(NumpyEmeans, faiss, centers_true, prob)
+    if any(w < 0 for w in args.warmup_checks):
+        raise SystemExit("--warmup-checks must be >= 0")
+    recorders = {w: revival.make_recorder(NumpyEmeans, faiss, centers_true, prob, warmup_checks=w)
+                 for w in {0, *args.warmup_checks}}
 
     out = ROOT / "results" / args.run_name
     report_dir = ROOT / "reports" / args.run_name
@@ -104,6 +113,7 @@ def main(argv=None):
                    **revival.coverage(faiss, centers, centers_true, prob))
         rows.append(row)
         print(f"  {row['algorithm']:12} thr={row['unused_threshold']!s:>4} "
+              f"warmup={row.get('warmup_checks', '')!s:>2} "
               f"passes={row['passes']!s:>3} seed={row['seed']}: test MSE={test_mse:.5f} "
               f"splits={row.get('splits', '')} uncovered={row['uncovered_blobs']}", flush=True)
 
@@ -116,13 +126,15 @@ def main(argv=None):
                                                      init_method="kmeanspp")
             finish(dict(base, algorithm="faiss_kmeans_pp", unused_threshold="",
                         passes=args.kmeans_niter, seed=seed), centers)
-        for thr in args.thresholds:
+        for thr, warmup in [(t, w) for t in args.thresholds
+                            for w in (args.warmup_checks if t > 0 else [0])]:
+            Recorder = recorders[warmup]
             for epochs in args.epochs:
                 passes = analysis.normalize_passes(epochs)
                 model = Recorder(dim, k, seed=seed, nepochs=passes, verbose=False,
                                  batch_law=args.batch_law, unused_threshold=thr)
                 centers, _ = model.train(train, init_centroids=init)
-                tag = dict(unused_threshold=thr, passes=passes, seed=seed)
+                tag = dict(unused_threshold=thr, warmup_checks=warmup, passes=passes, seed=seed)
                 events += [dict(tag, **e) for e in model.events]
                 checks += [dict(tag, **c) for c in model.checks]
                 summary = revival.event_summary(model.events, model.checks,
@@ -133,7 +145,7 @@ def main(argv=None):
                             **tag, **summary), runners.validate_centers(centers, k, dim))
         analysis.write_csv(out / "runs.csv", rows, RUN_KEYS)
 
-    tag_keys = ["unused_threshold", "passes", "seed"]
+    tag_keys = ["unused_threshold", "warmup_checks", "passes", "seed"]
     if events:
         analysis.write_csv(out / "events.csv", events, tag_keys + revival.EVENT_KEYS)
     if checks:
@@ -144,7 +156,7 @@ def main(argv=None):
         started_note="quality-only diagnostic; no timing recorded",
         profile=args.profile, settings=settings, dataset=args.dataset,
         imbalance_exponent=args.imbalance_exponent, seeds=args.seeds, epochs=args.epochs,
-        thresholds=args.thresholds, batch_law=args.batch_law, kmeans_niter=args.kmeans_niter,
+        thresholds=args.thresholds, warmup_checks=args.warmup_checks, batch_law=args.batch_law, kmeans_niter=args.kmeans_niter,
         threads=args.threads, data_seed=data.DATA_SEED,
         finished_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         faiss_version=getattr(faiss, "__version__", "unknown"), numpy_version=np.__version__,
@@ -167,7 +179,8 @@ def render(rows, metadata):
     """Medians over seeds for every (algorithm, threshold, passes)."""
     groups = {}
     for r in rows:
-        groups.setdefault((r["algorithm"], str(r["unused_threshold"]), r["passes"]), []).append(r)
+        groups.setdefault((r["algorithm"], str(r["unused_threshold"]),
+                           str(r.get("warmup_checks", "")), r["passes"]), []).append(r)
 
     def f(v, fmt):
         return "" if v is None else format(v, fmt)
@@ -182,20 +195,22 @@ def render(rows, metadata):
              f"{metadata['threads']} スレッド。品質のみ（時間は記録しない）",
              f"- コード {metadata['repo_commit']}（repo_dirty: {metadata['repo_dirty']}）、"
              f"公式 {metadata['e_means_source'].get('faiss_source_sha')}",
-             "- 値はシードの中央値。割合は 1 回の学習内の復活イベントに対する割合。", "",
-             "| 構成 | 閾値 | エポック/反復 | バッチ | test MSE | 復活数 | うち 1 エポック目 | "
+             "- 値はシードの中央値。割合は 1 回の学習内の復活イベントに対する割合。",
+             "- 「判定の停止」N > 0 は**本リポジトリの改変**（最初の N 回の復活判定を行わない）で、"
+             "公式の挙動ではない。0 が公式。", "",
+             "| 構成 | 閾値 | 判定の停止 | エポック/反復 | バッチ | test MSE | 復活数 | うち 1 エポック目 | "
              "発動時点の中央値 | 標的の質量 / 平均 | 標的が共有ブロブ上 | 標的が単独 | 単独かつ小ブロブ | "
              "標的ブロブの大きさ / 平均 | 寄贈元ブロブの大きさ / 平均 | 再復活の割合 | "
              "未被覆ブロブ | 未被覆の質量 | 重複ブロブ |",
-             "|" + "---|" * 18]
-    for (alg, thr, passes), g in groups.items():
+             "|" + "---|" * 19]
+    for (alg, thr, warmup, passes), g in groups.items():
         m = {key: _median([r.get(key, "") for r in g]) for key in (
             "batch_size", "test_mse", "events", "events_epoch0", "median_step_fraction",
             "target_mass_ratio_median", "target_on_shared_blob", "target_sole_on_blob",
             "target_sole_on_small_blob", "target_blob_ratio_median", "source_blob_ratio_median",
             "events_on_rerevived", "uncovered_blobs", "uncovered_mass", "crowded_blobs")}
         lines.append("| " + " | ".join([
-            alg, thr, str(passes), f(m["batch_size"], ".0f"), f(m["test_mse"], ".5g"),
+            alg, thr, warmup, str(passes), f(m["batch_size"], ".0f"), f(m["test_mse"], ".5g"),
             f(m["events"], ".0f"), f(m["events_epoch0"], ".0%"), f(m["median_step_fraction"], ".0%"),
             f(m["target_mass_ratio_median"], ".3f"), f(m["target_on_shared_blob"], ".0%"),
             f(m["target_sole_on_blob"], ".0%"), f(m["target_sole_on_small_blob"], ".0%"),
