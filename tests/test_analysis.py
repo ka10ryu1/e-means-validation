@@ -101,11 +101,14 @@ def test_timer_separates_waiting_from_work():
     with Timer() as t:
         time.sleep(0.05)          # waiting: wall time without CPU time
     assert t.seconds >= 0.05 and t.cpu_seconds < 0.03
+    # Busy for 0.05 s of main-thread CPU time (not wall time), so the assertions hold
+    # even when other processes compete for the CPU and stretch the wall time.
     with Timer() as t:
         x = 0
-        while time.perf_counter() - t._wall < 0.05:
-            x += 1                # busy: CPU time ~ wall time on the main thread
-    assert t.main_thread_cpu_seconds > 0.5 * t.seconds
+        while time.thread_time() - t._thread < 0.05:
+            x += 1
+    assert t.main_thread_cpu_seconds >= 0.05
+    assert t.seconds >= 0.99 * t.main_thread_cpu_seconds  # wall time >= own CPU time
 
 
 def test_timing_diagnostics_and_old_csv_compat():
