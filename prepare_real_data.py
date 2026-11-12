@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import shutil
 import tarfile
 import urllib.request
 from pathlib import Path
@@ -56,19 +55,48 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def check_range_response(status: int, content_range: str | None, size: int) -> None:
+    """A byte-range request must come back as 206 with exactly the requested range.
+
+    A server or proxy that ignores Range answers 200 with the whole file
+    (about 384 GB for DEEP1B), so anything else is refused before copying."""
+    if status != 206 or not (content_range or "").startswith(f"bytes 0-{size - 1}/"):
+        raise RuntimeError(f"expected 206 with Content-Range bytes 0-{size - 1}/..., "
+                           f"got {status} with {content_range!r}; refusing to download")
+
+
+def copy_bounded(src, out, size: int, chunk: int = 1 << 22) -> None:
+    """Copy exactly size bytes; fail as soon as the stream turns out longer or shorter."""
+    remaining = size
+    while remaining > 0:
+        buf = src.read(min(chunk, remaining))
+        if not buf:
+            raise RuntimeError(f"stream ended {remaining} bytes early (expected {size})")
+        out.write(buf)
+        remaining -= len(buf)
+    if src.read(1):
+        raise RuntimeError(f"stream is longer than the expected {size} bytes")
+
+
 def download(name: str, src: dict, dest: Path) -> None:
     if dest.exists() and dest.stat().st_size == src["size"]:
         print(f"{name}: using existing {dest}")
         return
     req = urllib.request.Request(src["url"])
-    if name == "deep1m":
+    ranged = name == "deep1m"
+    if ranged:
         req.add_header("Range", f"bytes=0-{src['size'] - 1}")
     tmp = dest.with_suffix(dest.suffix + ".part")
     print(f"{name}: downloading {src['url']} ({src['size'] / 1e6:.0f} MB)", flush=True)
-    with urllib.request.urlopen(req, timeout=60) as resp, tmp.open("wb") as out:
-        shutil.copyfileobj(resp, out, length=1 << 22)
-    if tmp.stat().st_size != src["size"]:
-        raise RuntimeError(f"{name}: got {tmp.stat().st_size} bytes, expected {src['size']}")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            if ranged:
+                check_range_response(resp.status, resp.headers.get("Content-Range"), src["size"])
+            with tmp.open("wb") as out:
+                copy_bounded(resp, out, src["size"])
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     tmp.replace(dest)
 
 
