@@ -83,6 +83,10 @@ uv run python benchmark.py --profile quick --datasets imbalanced --seeds 10 11 1
 uv run python make_report.py results/<run-name>
 uv run python make_scaling_table.py reports/<run1> reports/<run2> ...  # 規模を振った比較表
 
+# 公開実データ（SIFT1M・DEEP1M の 1M 行）の取得と変換（約 550MB、data/ に保存、Git 管理外）
+uv run python prepare_real_data.py
+uv run python benchmark.py --profile medium --input data/sift1m.npy --threads 4 --quality-only
+
 # 品質（MSE）だけを見る実験（他の作業と並行してよい。レポートに時間・倍率を出さない）
 uv run python benchmark.py --profile medium --datasets imbalanced --quality-only \
     --emeans-unused-threshold 0 --run-name q_imb_norevival
@@ -97,6 +101,7 @@ bash scripts/run_speed_suite.sh                       # quick（3 反復）→ m
 bash scripts/run_speed_suite.sh --profiles medium --max-wait-min 120
 bash scripts/run_scaling_suite.sh                     # 規模を振る検証（k・n・d を 1 つずつ、約 3 時間）
 bash scripts/run_scaling_suite.sh --points "k4096 n1m" # 一部の点だけ
+bash scripts/run_speed_suite.sh --profiles "" --real "sift1m deep1m"  # 実データ（medium 規模）だけ
 ```
 
 - 未コミットの変更があると実行しません（結果をコミットに対応させるため）。
@@ -226,6 +231,33 @@ Medium（n=200,000、k=1,024、d=64）を中心に、1 回に 1 つの要因だ�
 - **到達と判定された構成の空クラスタが、k と d とともに増える。** e-means++ の 1 エポックで、k=4,096 の separated は 100 / 4,096、d=128 の imbalanced は 123 / 1,024、d=768 の imbalanced は **495 / 1,024（約半数）** が空のまま、test MSE は基準の 1.01 倍以内に入った（Lloyd25 に対する到達）。d=768 の imbalanced は 3 エポックでも 51〜55 個が空。
 - **公式デフォルトの e-means 対 Lloyd25 の imbalanced は、点ごとに到達と未到達が入れ替わる。** 中心と n=100,000 では未到達（最良 1.02〜1.03 倍）、k=256・d=128 では 1 エポックで到達、n=1,000,000 では 10 エポックで 2/3 シードのみ到達。基準との差が 1% 前後で判定境界に近いためで、この比較の到達・未到達は条件のわずかな違いで変わる。
 
+### 公開実データ（SIFT1M・DEEP1M、medium 規模）— `reports/speed_20261112-1333_{sift1m,deep1m}_medium_t4/`
+
+1M 行の公開データから 200,000 行を学習、10,000 行を評価に重複なく抽出し、k = 1,024、5 シードで計測しました（データと前処理なしの方針は [docs/methodology.md](docs/methodology.md) の 6b 節）。速度は 2026-11-12 13:33〜13:46 JST に `scripts/run_speed_suite.sh --profiles "" --real "sift1m deep1m"` で計測しました（昼休みで作業なし、VS Code も終了。開始時のロードアベレージ 0.49、2 回とも CPU の取り合いの検出 0 件）。`repo_dirty: false`（`5ebeeb0`）、公式ソースは固定 SHA と一致、入力の SHA-256 も固定値と一致。品質（MSE・空クラスタ）は、同日午前の品質専用の計測（`reports/q_real_{sift1m,deep1m}_medium/`）と全シード・全構成で一致しました。
+
+**A. 仕様上の比較: 公式デフォルトの e-means 対 Lloyd25**
+
+| データ | Lloyd25 の test MSE / 秒 | e-means 到達 | 到達エポック / 秒 | 倍率 vs Lloyd25 | 倍率 vs 同手法最短（反復数） | 到達構成の空クラスタ | e-means 最良 MSE / 基準 | シード別到達（倍率 最小〜最大） |
+|---|---|---|---|---|---|---|---|---|
+| sift1m（d=128） | 51,576 / 11.45 s | yes | 1 / 0.69 s | 16.5× | 3.1×（5） | 0 | 0.996 | 5/5（13.8〜19.1×） |
+| deep1m（d=96） | 0.4702 / 8.54 s | yes | 2 / 1.07 s | 8.0× | 3.5×（10） | 0 | 0.996 | 5/5（7.4〜14.9×） |
+
+**B. 初期重心を揃えた比較: e-means++ 対 Lloyd++25（両者とも k-means++ の初期化時間を含む）**
+
+| データ | Lloyd++25 の test MSE / 秒 | e-means++ 到達 | 到達エポック / 秒 | 倍率 vs Lloyd++25 | 倍率 vs 同手法最短（反復数） | 到達構成の空クラスタ | e-means++ 最良 MSE / 基準 | シード別到達（倍率 最小〜最大） |
+|---|---|---|---|---|---|---|---|---|
+| sift1m | 51,578 / 12.99 s | yes | 1 / 2.35 s | 5.5× | 2.7×（10） | 0 | 0.996 | 5/5（4.3〜5.7×） |
+| deep1m | 0.4709 / 9.92 s | yes | 1 / 1.79 s | 5.5× | 2.8×（10） | 0 | 0.996 | 5/5（4.0〜5.7×） |
+
+参考（組み合わせを変えた場合）: 公式デフォルトの e-means 対 Lloyd++25 は sift1m 18.7×（同手法最短比 9.0×）、deep1m 19.0×（9.7×、1 エポックで到達）。e-means++ 対 Lloyd25 は sift1m 4.9×（**0.93×**、Lloyd 5 反復より遅い）、deep1m 3.5×（1.5×、2 エポック）。
+
+- **人工データの不均衡・分離データで見えた未到達と空クラスタは、どちらの実データでも出なかった。** 全構成・全シードで到達し、空クラスタは 0。振る舞いは人工データの gaussian（クラスタ構造なし）に近い。
+- **e-means の 1 エポックは Lloyd の 1 反復の 1.60 倍（sift1m）、1.43 倍（deep1m）**（各データの e-means 1 エポックの秒 ÷（Lloyd 5 反復の秒 ÷ 5））。人工データ medium の 1.4〜1.7 倍と同じ範囲。
+- **k-means++ 初期化の時間が e-means++ の大半を占める。** e-means++ と e-means の 1 エポックの差は sift1m 1.65 s、deep1m 1.27 s。sift1m で e-means++ が Lloyd25 の最短到達（5 反復, 2.17 s）より遅いのはこのため。
+- **実データでは 1% の許容幅が粗い。** 全手法の test MSE が 1% 程度の幅に収まり、sift1m では Lloyd の 5 反復も基準の 1.009 倍で「到達」になる。deep1m で e-means が Lloyd25 には 2 エポック、Lloyd++25 には 1 エポックで到達するのも、基準の MSE が 0.15% 違うだけで判定が変わるため。判定規則は変えていないが、参考として同じ表の中央値から「基準以下（許容幅 0）」で読むと、e-means / e-means++ はどちらのデータでも 3 エポック（deep1m の e-means 対 Lloyd++25 は 2 エポック）が必要になる。
+- e-means の 10 エポックは、どちらのデータでも Lloyd25 より 0.4〜0.5% 低い test MSE になった（Lloyd は 25 反復でまだ収束していない）。
+- deep1m の A は、シード別の倍率が 7.4〜14.9 倍と広い（到達エポックがシードで 1 と 2 に分かれるため）。
+
 ### 現時点の解釈（この条件の範囲に限る）
 
 1. **同じ初期重心から比べると、更新則の優劣はデータで逆転する。** e-means++ 対 Lloyd++ では、separated と gaussian は e-means が 1 エポックで同等以上の品質に達し、同手法最短比で約 1.8 倍速い（Medium）。一方 imbalanced では、e-means++ は 10 エポックでも 103.4 で、Lloyd++ の 5 反復（83.7）に届かない。**不均衡データでの劣後は初期化ではなく更新則によるもの**である。さらに品質専用の追加調査（[docs/findings-imbalanced.md](docs/findings-imbalanced.md)）で、**主因は e-means のクラスタ復活（`unused_threshold`、既定 0.1）** と判明した。復活を無効化すると差は 1.24 倍から 1.016 倍に縮む。ただし均等サイズの separated では逆に復活がある方がよく（0.866 対 1.009）、最適な設定はデータ分布に依存する。公式の「追加のハイパーパラメータ不要」という主張に対する反例である。
@@ -239,11 +271,12 @@ Medium（n=200,000、k=1,024、d=64）を中心に、1 回に 1 つの要因だ�
 9. **低次元（d ≤ 16）では、本環境の CPU 実装の e-means はほぼすべての比較で Lloyd より遅い**（例外は d=2 の imbalanced の e-means++ 対 Lloyd++ で 1.02×）。公式デフォルトが d ≤ 16 で選ぶ quality 則のバッチ（512）では、1 エポックが Lloyd 1 反復の 11〜23 倍かかる。多くの比較で品質には 1〜3 エポックで到達しているので、遅さはエポック数ではなく 1 エポックの重さによる。原因は小さいバッチごとの Python 側の処理と推測されるが、未計測。GPU 実装（本検証の対象外）では事情が異なり得る。
 10. **不均衡データでの劣後は、クラスタ復活が有効なすべての点で再現した。** e-means++ 対 Lloyd++ の imbalanced は、復活が有効な 8 点すべてで未到達（1.09〜1.28 倍悪い）。到達したのは、公式デフォルトで復活が無効になる d=2 の点だけ（1 エポック、1.02×）だった。品質専用の追加調査で得た「主因はクラスタ復活」という結論（解釈 1）と整合する。ただし d=2 は quality 則への切り替えも同時に起きており、復活の効果だけを分離したものではない。
 11. **MSE だけの到達判定は、高次元・大きな k で空クラスタを見落とす。** d=768 では、クラスタの約半数が空のまま「到達」と判定される構成があった。判定規則は変えていないが、結果を読むときは `到達構成の空クラスタ` 列を必ず併せて見る必要がある。
+12. **公開実データ（SIFT1M・DEEP1M）では、品質・速度とも主張に近い結果が再現した。** 公式デフォルトでも k-means++ 初期化でも、1〜2 エポックで Lloyd 25 反復と 1% 以内の品質に達し、空クラスタも残らなかった。初期重心を揃えた同手法最短比は 2.7〜2.8 倍で、人工データ gaussian（1.8 倍）より大きい。不均衡データで見えた劣後（解釈 1・10）は、この 2 つの実データでは現れなかった。ただし手法間の品質差がもともと 1% 程度と小さく、判定が許容幅に敏感（基準以下まで求めると 2〜3 エポック）で、sift1m の e-means++ 対 Lloyd25 は k-means++ の初期化時間のため 0.93 倍だった。
 
 ## 8. 検証上の制約
 
 - **CPU 上の独立ベンチマークであり、論文の GPU 実験（H100、Flash-KMeans との比較、DEEP / ImageNet-CLIP 等の実データ）の再現ではありません。** 論文の約 10 倍という実時間の数値は、本検証の対象外です。
-- 人工データ（3 種類、64 次元）のみ。実データ・高次元・低次元は未検証です。
+- 実データは SIFT1M・DEEP1M の 2 種類、medium 規模（n=200,000、k=1,024）のみ。速度は 1 回の計測（昼休みの作業のない時間帯）です。テキスト埋め込みなど他の種類の実データは未検証です。
 - Quick 規模の計時は、作業のない時間帯の計測どうしでも e-means の時間が実行間で変わり（日中には約 1.5 倍の事例。原因未特定）、倍率の再現性が低い。
 - quick 規模では 1 回の学習が 0.1 秒前後で、Python のオーバーヘッドと計時ノイズの比率が大きくなります。
 - WSL2 上の計測であり、ホスト側の負荷や CPU 周波数の変動を受けます。結果は同一マシン内での相対比較として扱ってください。
@@ -259,7 +292,7 @@ Medium（n=200,000、k=1,024、d=64）を中心に、1 回に 1 つの要因だ�
 - 規模の検証の延長: k = 16,384 以上（1 条件で約 1 時間かかるため未実施）、1 クラスタあたりの点数を一定にした k 軸、k と n を同時に大きくした点
 - 低次元で e-means が遅い原因の切り分け（`batch_law="throughput"` を明示した d ≤ 16、1 バッチあたりの処理時間の内訳）
 - d=2 で imbalanced に到達した理由の切り分け（クラスタ復活の無効化と quality 則のどちらが効いたか）
-- 公開実データ（例: SIFT1M、DEEP1M の部分集合）での検証
+- k や n を変えた実データでの確認、許容幅を狭めた（例: 0.1%）判定での再読
 - スレッド数（1, 2, 4, 6）による倍率の変化
 - `batch_law="quality"` と `"throughput"` の比較、`capture_assignments=False` の影響
 - シード数を増やした（例: 10 以上）統計的な比較
@@ -276,12 +309,14 @@ e-means-validation/
 ├── make_report.py            # 集計・レポート再生成
 ├── make_scaling_table.py     # 規模を振った比較表（複数レポートから）
 ├── emv/                      # data / runners / analysis / official
+├── prepare_real_data.py      # 公開実データの取得・.npy 変換（SHA-256 固定）
 ├── scripts/setup_faiss.sh    # 公式ソース取得（SHA 固定）
 ├── tests/                    # pytest
 ├── docs/methodology.md       # 検証方法論
 ├── docs/validation-kit.md    # 既存検証キットからの移行記録
 ├── reports/                  # 集計レポート（Git 管理）
 ├── results/                  # 生データ（Git 管理外）
+├── data/                     # 公開実データ（Git 管理外）
 └── faiss-src/                # 公式ソース（Git 管理外）
 ```
 

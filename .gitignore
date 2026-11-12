@@ -225,3 +225,5 @@ faiss-src/
 # ベンチマーク生データ（大容量・環境依存）。集計は reports/ に保存してGit管理する
 results/*
 !results/.gitkeep
+# 公開実データ（prepare_real_data.py で取得・変換。大容量のためGit管理外）
+data/

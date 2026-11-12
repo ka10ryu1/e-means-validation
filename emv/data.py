@@ -60,6 +60,33 @@ def real_embeddings(path: Path, ntrain: int, ntest: int):
     return train, test
 
 
+def parse_fvecs(buf: bytes) -> np.ndarray:
+    """TEXMEX .fvecs: each row is int32 dim followed by dim float32 values."""
+    raw = np.frombuffer(buf, dtype=np.int32)
+    if raw.size == 0:
+        raise ValueError("empty .fvecs data")
+    dim = int(raw[0])
+    if dim < 1 or raw.size % (dim + 1):
+        raise ValueError(f"malformed .fvecs data (dim={dim}, {raw.size} words)")
+    rows = raw.reshape(-1, dim + 1)
+    if not (rows[:, 0] == dim).all():
+        raise ValueError("inconsistent row dimensions in .fvecs data")
+    return np.ascontiguousarray(rows[:, 1:].view(np.float32))
+
+
+def parse_fbin_prefix(buf: bytes, nrows: int, dim: int) -> np.ndarray:
+    """big-ann .fbin (uint32 n, uint32 d, then n*d float32), first nrows rows only.
+
+    buf may be a byte-range prefix of a larger file, so the header n is only
+    required to be >= nrows."""
+    if len(buf) != 8 + nrows * dim * 4:
+        raise ValueError(f"expected {8 + nrows * dim * 4} bytes, got {len(buf)}")
+    n, d = (int(v) for v in np.frombuffer(buf[:8], dtype=np.uint32))
+    if d != dim or n < nrows:
+        raise ValueError(f"header says n={n} d={d}; need n>={nrows} d={dim}")
+    return np.frombuffer(buf[8:], dtype=np.float32).reshape(nrows, dim).copy()
+
+
 def shared_init(train: np.ndarray, k: int, seed: int) -> np.ndarray:
     """Initial centroids drawn exactly as NumpyEmeans.train does by default
     (k rows of a RandomState(seed) permutation)."""
