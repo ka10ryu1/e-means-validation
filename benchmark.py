@@ -36,6 +36,10 @@ def parse_args(argv=None):
                    help="Re-run every (seed, config) this many times (timing noise)")
     p.add_argument("--threads", type=int, default=4)
     p.add_argument("--k", type=int, default=None, help="Override cluster count")
+    p.add_argument("--ntrain", type=int, default=None, help="Override training rows")
+    p.add_argument("--ntest", type=int, default=None, help="Override held-out rows")
+    p.add_argument("--dim", type=int, default=None,
+                   help="Override dimension (synthetic data only)")
     p.add_argument("--kmeans-niters", nargs="+", type=int, default=[5, 10, 25],
                    help="Faiss k-means iteration counts (must include --baseline-niter)")
     p.add_argument("--kmeans-inits", nargs="+", choices=("random", "kmeanspp"),
@@ -80,6 +84,11 @@ def parse_args(argv=None):
         p.error("--threads must be >= 1")
     if args.repeats < 1:
         p.error("--repeats must be >= 1")
+    for name in ("ntrain", "ntest", "dim"):
+        if getattr(args, name) is not None and getattr(args, name) < 1:
+            p.error(f"--{name} must be >= 1")
+    if args.dim is not None and args.input is not None:
+        p.error("--dim cannot be combined with --input (the dimension comes from the file)")
     if args.baseline_niter not in args.kmeans_niters:
         p.error("--kmeans-niters must include --baseline-niter")
     if "random" not in args.kmeans_inits:
@@ -130,8 +139,9 @@ def main(argv=None):
     faiss.omp_set_num_threads(args.threads)
 
     settings = dict(data.PROFILES[args.profile])
-    if args.k is not None:
-        settings["k"] = args.k
+    overrides = {name: getattr(args, name) for name in ("ntrain", "ntest", "dim", "k")
+                 if getattr(args, name) is not None}
+    settings.update(overrides)
     if not 2 <= settings["k"] <= settings["ntrain"]:
         raise SystemExit("k must be between 2 and ntrain")
 
@@ -173,7 +183,8 @@ def main(argv=None):
         "run_name": run_name,
         "started_at": started_at.isoformat(timespec="seconds"),
         "command": ["python", *sys.argv],
-        "profile": args.profile, "settings": settings, "datasets": datasets,
+        "profile": args.profile, "settings": settings, "settings_overrides": overrides,
+        "datasets": datasets,
         "seeds": args.seeds, "repeats": args.repeats, "threads": args.threads,
         "thread_env": {v: os.environ.get(v) for v in THREAD_ENV},
         "quality_only": args.quality_only,

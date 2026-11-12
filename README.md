@@ -81,6 +81,7 @@ uv run python benchmark.py --profile quick --datasets imbalanced --seeds 10 11 1
 
 # 集計とレポートの再生成
 uv run python make_report.py results/<run-name>
+uv run python make_scaling_table.py reports/<run1> reports/<run2> ...  # 規模を振った比較表
 
 # 品質（MSE）だけを見る実験（他の作業と並行してよい。レポートに時間・倍率を出さない）
 uv run python benchmark.py --profile medium --datasets imbalanced --quality-only \
@@ -94,6 +95,8 @@ uv run python benchmark.py --profile medium --datasets imbalanced --quality-only
 ```bash
 bash scripts/run_speed_suite.sh                       # quick（3 反復）→ medium、4 スレッド
 bash scripts/run_speed_suite.sh --profiles medium --max-wait-min 120
+bash scripts/run_scaling_suite.sh                     # 規模を振る検証（k・n・d を 1 つずつ、約 3 時間）
+bash scripts/run_scaling_suite.sh --points "k4096 n1m" # 一部の点だけ
 ```
 
 - 未コミットの変更があると実行しません（結果をコミットに対応させるため）。
@@ -105,7 +108,7 @@ bash scripts/run_speed_suite.sh --profiles medium --max-wait-min 120
 
 日中に行う実験は `--quality-only` を付け、品質（MSE・空クラスタ・到達エポック数）だけを評価します。
 
-主なオプション: `--quality-only`、`--emeans-batch-law auto|throughput|quality`、`--emeans-unused-threshold`（e-means のクラスタ復活の閾値。既定は公式デフォルト）、`--imbalance-exponent`（既定 1.3 = キット）、`--kmeans-niters`（既定 5 10 25）、`--kmeans-inits` / `--emeans-inits`（既定 `random kmeanspp`）、`--emeans-epochs`（既定 1 2 3 5 10）、`--baseline-niter`（25）、`--tolerance`（0.01）、`--order shuffled|fixed`、`--no-warmup`、`--input data.npy`（公開データのみ）、`--allow-unpinned`。
+主なオプション: `--quality-only`、`--ntrain` / `--ntest` / `--dim` / `--k`（プロファイルの値を上書き。規模を振る検証用）、`--emeans-batch-law auto|throughput|quality`、`--emeans-unused-threshold`（e-means のクラスタ復活の閾値。既定は公式デフォルト）、`--imbalance-exponent`（既定 1.3 = キット）、`--kmeans-niters`（既定 5 10 25）、`--kmeans-inits` / `--emeans-inits`（既定 `random kmeanspp`）、`--emeans-epochs`（既定 1 2 3 5 10）、`--baseline-niter`（25）、`--tolerance`（0.01）、`--order shuffled|fixed`、`--no-warmup`、`--input data.npy`（公開データのみ）、`--allow-unpinned`。
 
 計測の公平性のために行っていること:
 
@@ -197,6 +200,32 @@ e-means++ の separated は、空クラスタが 0 になる 3 エポック（2.
 
 Medium も、日中の計測（`reports/medium_t4/`、作業中で取り合いの影響あり）とは時間が異なります。Lloyd25 は gaussian で 7.68 s → 6.32 s（夜間）と約 18% 短くなった一方、e-means 1 エポックは 0.44 s → 0.41 s と約 5% の短縮にとどまり、倍率は 17.5× → 15.2× に下がりました。日中の値は Lloyd の時間を相対的に大きく見積もっていました。
 
+### 規模を振った結果（n・k・d を 1 つずつ変更、3 シード）— `reports/scale_20261112-0338_*_t4/`
+
+Medium（n=200,000、k=1,024、d=64）を中心に、1 回に 1 つの要因だけを変えました（設計と交絡は [docs/methodology.md](docs/methodology.md) の 6 節）。2026-11-12 03:38〜06:06 JST に `scripts/run_speed_suite.sh` と同じ条件（作業のない時間帯、4 スレッド）で計測し、8 点すべてで CPU の取り合いの検出は 0 件、`repo_dirty: false`（`4ab4c91`）でした。中心の点は上記の Medium（5 シード）を使っています。全データセット・全比較の表は [reports/scale_20261112-0338_overview.md](reports/scale_20261112-0338_overview.md)（`make_scaling_table.py` で生成）にあります。
+
+表の倍率はすべて **vs 同手法最短**（基準と同じ初期化の Lloyd が同じ閾値に届く最短反復数との比）。括弧内は到達した最少エポック（1 以外のとき）と、その構成の空クラスタ数（/ k）。
+
+| 変えた要因 | 値 | 1 エポック / 1 反復の時間比 | e-means のバッチ（1 エポック） | A. e-means 対 Lloyd25: gaussian | B. e-means++ 対 Lloyd++25: gaussian | B: separated | B: imbalanced |
+|---|---|---|---|---|---|---|---|
+| k | 256 | 2.25 | 4,096 / throughput | 2.23× | 1.53× | 1.49×（空 3） | **NO**（1.09 倍悪い） |
+| （中心） | 1,024 | 1.60 | 4,096 / throughput | 3.13× | 1.83× | 1.78×（空 16） | **NO**（1.24） |
+| k | 4,096 | 1.22 | 4,096 / throughput | 4.10× | 1.88× | 1.49×（2 ep、空 16） | **NO**（1.21） |
+| n | 100,000 | 1.62 | 2,048 / throughput | 3.08× | 1.65× | 1.75×（空 20） | **NO**（1.28） |
+| n | 1,000,000 | 1.37 | 16,384 / throughput | 3.64× | 1.67× | 1.56×（空 7） | **NO**（1.14） |
+| d | 2 | 23.2 | 512 / quality、復活なし | **0.41×**（3 ep） | **0.79×**（2 ep） | **0.58×**（3 ep） | 1.02×（空 0） |
+| d | 16 | 10.7 | 512 / quality | **0.47×** | **0.81×** | **0.71×**（2 ep） | **NO**（1.13） |
+| d | 128 | 1.49 | 4,096 / throughput | 3.35× | 1.69× | 1.63×（空 41） | **NO**（1.25） |
+| d | 768 | 1.46 | 4,096 / throughput | 3.43× | 1.51× | 1.69×（空 60） | **NO**（1.17） |
+
+時間比は gaussian の e-means 1 エポックの秒 ÷（Lloyd 5 反復の秒 ÷ 5）。バッチは `raw_results.csv` の `batch_size`・`batch_law` 列（d=2 の「復活なし」は `unused_threshold` = 0）。
+
+その他の観察（同じレポートから）:
+
+- **仕様上の比較（e-means 対 Lloyd25、基準の時間 ÷ e-means の時間）** は gaussian の d ≥ 64 で 10.9×（k=256）〜19.6×（k=4,096）。d=16 では 2.3×、d=2 では 0.41×（3 エポック）で、Lloyd25 そのものより遅い。
+- **到達と判定された構成の空クラスタが、k と d とともに増える。** e-means++ の 1 エポックで、k=4,096 の separated は 100 / 4,096、d=128 の imbalanced は 123 / 1,024、d=768 の imbalanced は **495 / 1,024（約半数）** が空のまま、test MSE は基準の 1.01 倍以内に入った（Lloyd25 に対する到達）。d=768 の imbalanced は 3 エポックでも 51〜55 個が空。
+- **公式デフォルトの e-means 対 Lloyd25 の imbalanced は、点ごとに到達と未到達が入れ替わる。** 中心と n=100,000 では未到達（最良 1.02〜1.03 倍）、k=256・d=128 では 1 エポックで到達、n=1,000,000 では 10 エポックで 2/3 シードのみ到達。基準との差が 1% 前後で判定境界に近いためで、この比較の到達・未到達は条件のわずかな違いで変わる。
+
 ### 現時点の解釈（この条件の範囲に限る）
 
 1. **同じ初期重心から比べると、更新則の優劣はデータで逆転する。** e-means++ 対 Lloyd++ では、separated と gaussian は e-means が 1 エポックで同等以上の品質に達し、同手法最短比で約 1.8 倍速い（Medium）。一方 imbalanced では、e-means++ は 10 エポックでも 103.4 で、Lloyd++ の 5 反復（83.7）に届かない。**不均衡データでの劣後は初期化ではなく更新則によるもの**である。さらに品質専用の追加調査（[docs/findings-imbalanced.md](docs/findings-imbalanced.md)）で、**主因は e-means のクラスタ復活（`unused_threshold`、既定 0.1）** と判明した。復活を無効化すると差は 1.24 倍から 1.016 倍に縮む。ただし均等サイズの separated では逆に復活がある方がよく（0.866 対 1.009）、最適な設定はデータ分布に依存する。公式の「追加のハイパーパラメータ不要」という主張に対する反例である。
@@ -206,6 +235,10 @@ Medium も、日中の計測（`reports/medium_t4/`、作業中で取り合い�
 5. **1 エポックの e-means は空クラスタを残しやすい**（Medium separated: デフォルト 41、e-means++ 16 / 1024）。MSE だけで「到達」と判定される構成でも、実務上は 2〜3 エポック以上が必要な場合がある。
 6. **e-means の 1 エポックは Lloyd の 1 反復より重い**（Medium で約 1.4〜1.7 倍、Quick で約 4〜5 倍。Lloyd 5 反復の時間 ÷ 5 との比）。小規模ではエポック数削減の効果が小さく、Quick の gaussian では e-means 1 エポックが Lloyd の最短到達構成（5 反復）とほぼ同じ時間（0.97×）だった（原因は Python 側のオーバーヘッドと推測されるが、未計測）。
 7. separated / imbalanced では、いずれの手法も理論上の最良値（約 64、単位分散ノイズ × 64 次元）から遠く、全手法が局所解にある。
+8. **規模を振ると、更新則の差（初期重心を揃えた比較）は約 1.5〜1.9 倍でほぼ一定。** d ≥ 64 では k を 16 倍、n を 10 倍、d を 12 倍に変えても、e-means++ 対 Lloyd++ の同手法最短比は gaussian・separated で 1.49〜1.88 倍の範囲に収まり、規模とともに伸びる傾向は見えない。一方、公式デフォルトの e-means 対 Lloyd25 の同手法最短比は k とともに 2.2 → 3.1 → 4.1 倍と伸びた（n・d に対してはほぼ一定）。k が大きいほど 1 エポックの相対コストが下がる（時間比 2.25 → 1.60 → 1.22）ことと対応している。論文の規模（さらに大きい k）での伸びは、本検証では未計測。
+9. **低次元（d ≤ 16）では、本環境の CPU 実装の e-means はほぼすべての比較で Lloyd より遅い**（例外は d=2 の imbalanced の e-means++ 対 Lloyd++ で 1.02×）。公式デフォルトが d ≤ 16 で選ぶ quality 則のバッチ（512）では、1 エポックが Lloyd 1 反復の 11〜23 倍かかる。多くの比較で品質には 1〜3 エポックで到達しているので、遅さはエポック数ではなく 1 エポックの重さによる。原因は小さいバッチごとの Python 側の処理と推測されるが、未計測。GPU 実装（本検証の対象外）では事情が異なり得る。
+10. **不均衡データでの劣後は、クラスタ復活が有効なすべての点で再現した。** e-means++ 対 Lloyd++ の imbalanced は、復活が有効な 8 点すべてで未到達（1.09〜1.28 倍悪い）。到達したのは、公式デフォルトで復活が無効になる d=2 の点だけ（1 エポック、1.02×）だった。品質専用の追加調査で得た「主因はクラスタ復活」という結論（解釈 1）と整合する。ただし d=2 は quality 則への切り替えも同時に起きており、復活の効果だけを分離したものではない。
+11. **MSE だけの到達判定は、高次元・大きな k で空クラスタを見落とす。** d=768 では、クラスタの約半数が空のまま「到達」と判定される構成があった。判定規則は変えていないが、結果を読むときは `到達構成の空クラスタ` 列を必ず併せて見る必要がある。
 
 ## 8. 検証上の制約
 
@@ -216,13 +249,16 @@ Medium も、日中の計測（`reports/medium_t4/`、作業中で取り合い�
 - WSL2 上の計測であり、ホスト側の負荷や CPU 周波数の変動を受けます。結果は同一マシン内での相対比較として扱ってください。
 - e-means の計時には、公式デフォルトによる最終エポックのラベル保存のコストが含まれます。
 - シード数が少ないため、min / max は参考値です。
+- 規模を振った検証は 1 回に 1 要因だけを変えた 3 シードの計測で、要因間の相互作用（例: 大きな k と大きな n の組み合わせ）は見ていません。k 軸では 1 クラスタあたりの点数も同時に変わります。
 
 ## 9. 今後の検証課題
 
 - クラスタ復活のメカニズムの確認（復活の発動回数と対象の質量の記録）、閾値の細かい掃引、k を変えた再確認（[docs/findings-imbalanced.md](docs/findings-imbalanced.md) の「次の検証候補」）
 - 計時ノイズの原因調査（`taskset` 等によるコア固定、Windows の電源設定）。作業のない時間帯でも Quick の時間が実行間で変わる原因の特定
 - scikit-learn `MiniBatchKMeans` の追加
-- クラスタ数（k = 256〜16k）・次元（d = 2, 16, 128, 768）・データ数を振ったスケーリング検証
+- 規模の検証の延長: k = 16,384 以上（1 条件で約 1 時間かかるため未実施）、1 クラスタあたりの点数を一定にした k 軸、k と n を同時に大きくした点
+- 低次元で e-means が遅い原因の切り分け（`batch_law="throughput"` を明示した d ≤ 16、1 バッチあたりの処理時間の内訳）
+- d=2 で imbalanced に到達した理由の切り分け（クラスタ復活の無効化と quality 則のどちらが効いたか）
 - 公開実データ（例: SIFT1M、DEEP1M の部分集合）での検証
 - スレッド数（1, 2, 4, 6）による倍率の変化
 - `batch_law="quality"` と `"throughput"` の比較、`capture_assignments=False` の影響
@@ -238,6 +274,7 @@ e-means-validation/
 ├── FAISS_COMMIT              # 検証対象の公式 Faiss コミット SHA
 ├── benchmark.py              # ベンチマーク CLI
 ├── make_report.py            # 集計・レポート再生成
+├── make_scaling_table.py     # 規模を振った比較表（複数レポートから）
 ├── emv/                      # data / runners / analysis / official
 ├── scripts/setup_faiss.sh    # 公式ソース取得（SHA 固定）
 ├── tests/                    # pytest

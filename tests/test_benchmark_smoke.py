@@ -77,3 +77,37 @@ def test_quality_only_report_has_no_time_columns(official_source, tmp_path):
         em = [r for r in csv.DictReader(f) if r["algorithm"] == "e_means"]
     assert em and all(float(r["unused_threshold"]) == 0.0 and r["batch_law"] == "quality"
                       for r in em)
+
+
+def test_size_overrides(official_source, tmp_path):
+    out, rep = tmp_path / "raw", tmp_path / "rep"
+    subprocess.run(
+        [sys.executable, "benchmark.py", "--profile", "smoke", "--threads", "1",
+         "--datasets", "gaussian", "--seeds", "0", "--ntrain", "1200", "--ntest", "300",
+         "--dim", "8", "--k", "12", "--kmeans-niters", "25", "--emeans-epochs", "1",
+         "--kmeans-inits", "random", "--emeans-inits", "random", "--quality-only",
+         "--out", str(out), "--report-dir", str(rep), "--run-name", "pytest-overrides"],
+        cwd=ROOT, check=True, capture_output=True, text=True)
+    meta = json.loads((out / "metadata.json").read_text())
+    assert meta["settings"] == dict(ntrain=1200, ntest=300, dim=8, k=12)
+    assert meta["settings_overrides"] == dict(ntrain=1200, ntest=300, dim=8, k=12)
+    assert "プロファイルの値を上書き" in (rep / "report.md").read_text()
+
+
+def test_dim_override_rejected_with_input(tmp_path):
+    import pytest
+    from benchmark import parse_args
+    with pytest.raises(SystemExit):
+        parse_args(["--input", str(tmp_path / "x.npy"), "--dim", "8"])
+
+
+def test_scaling_table_from_committed_report(tmp_path):
+    report = ROOT / "reports" / "speed_20261111-1905_medium_t4"
+    out = tmp_path / "overview.md"
+    subprocess.run([sys.executable, "make_scaling_table.py", str(report), str(report),
+                    "--out", str(out)], cwd=ROOT, check=True, capture_output=True, text=True)
+    text = out.read_text()
+    assert text.count("| n=200,000 k=1,024 d=64 |") == 6  # 2 rows x 3 tables
+    # values copied from comparison.csv: e-means vs Lloyd25 on gaussian, 1 epoch, 3.13x
+    assert "1 ep / 3.13× / 空 0（5/5）" in text
+    assert "**NO**（1.24、0/5）" in text  # e-means++ vs Lloyd++25 on imbalanced

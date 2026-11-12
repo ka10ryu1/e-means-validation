@@ -332,7 +332,10 @@ def render_report(metadata: dict, summaries: list[dict], comparisons: list[dict]
         "## 実行条件",
         "",
         f"- プロファイル: `{m['profile']}` (ntrain={s['ntrain']}, ntest={s['ntest']}, "
-        f"dim={s['dim']}, k={s['k']})",
+        f"dim={s['dim']}, k={s['k']})"
+        + (f"  — プロファイルの値を上書き: "
+           f"{', '.join(f'{k}={v}' for k, v in m['settings_overrides'].items())}"
+           if m.get("settings_overrides") else ""),
         f"- データ: {', '.join(m['datasets'])}  / 入力: {m['input']}",
         f"- 乱数シード: {m['seeds']}  / 反復: {m['repeats']}  / 実行順: {m['order']}",
         f"- 初期化: `{m['init']}` — {m['init_note']}",
