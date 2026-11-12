@@ -46,6 +46,35 @@ imbalanced データ（クラスタサイズ ∝ rank^-1.3）では、k = 1,024 
 4. **公式の「追加のハイパーパラメータ不要」という主張に対する反例。** `unused_threshold` は既定値のままだと不均衡データで 10〜24% の品質低下を招き、どの値が最良かはデータ分布に依存する。`batch_law="quality"` はこの問題を改善しなかった（悪化した）。
 5. 復活を無効化しても、指数 1.3 / 1.6 では「1% 以内」の基準にはわずかに届かない（シード別 1/5）。残りの差の原因は未特定。
 
+## 追加調査: d=2 の imbalanced で e-means++ が到達した理由
+
+実施日: 2026-11-12 / 計測コード: `d60528f`（全実行 `repo_dirty: false`）/ 4 スレッド / **品質専用**（`--quality-only`、日中に実行。時間は評価に使っていない）。
+
+規模を振った検証（`reports/scale_20261112-0338_d2_t4/`）では、d=2 の imbalanced で e-means++ が Lloyd++25 に 1 エポックで到達した（最良 / Lloyd++ = 0.976、3/3）。d ≥ 16 では復活が有効な 8 点すべてで未到達だった。ただし d=2 では公式デフォルトによって 2 つの設定が同時に変わる。
+
+- クラスタ復活が無効になる（`unused_threshold=None` → d ≤ 2 では 0）
+- バッチの決め方が quality 則になる（`batch_law="auto"` → 低次元では quality、バッチ 512〜4096）
+
+どちらが効いたかを分けるため、d=2・imbalanced（指数 1.3）・n=200,000・k=1,024・3 シード（0, 1, 2）で、2 × 2 の組み合わせを実行した。
+
+| バッチの決め方（バッチサイズ） | 復活の閾値 | Lloyd++25 | e-means++ 1 / 2 / 3 / 5 / 10 エポック | 最良 / Lloyd++ | 到達（1% 以内） | 復活の延べ数（全エポック・全シード） | レポート |
+|---|---|---|---|---|---|---|---|
+| quality（512〜4096）= d=2 の公式デフォルト | 0 | 0.03945 | 0.03974 / 0.03881 / 0.03883 / 0.03881 / 0.03850 | **0.976** | yes, 1 エポック, 3/3 | 0 | `q_d2imb_quality_thr0` |
+| quality（512〜4096） | 0.1 | 0.03945 | 0.05368 / 0.04723 / 0.04757 / 0.04576 / 0.04489 | 1.138 | **NO**, 0/3 | 161〜298 | `q_d2imb_quality_thr01` |
+| throughput（4096〜32768） | 0 | 0.03945 | 0.04015 / 0.03963 / 0.03953 / 0.03856 / 0.03889 | **0.978** | yes, 2 エポック, 3/3 | 0 | `q_d2imb_throughput_thr0` |
+| throughput（4096〜32768）= d ≥ 64 の公式デフォルトと同じ組み合わせ | 0.1 | 0.03945 | 0.04743 / 0.04617 / 0.04471 / 0.04438 / 0.04324 | 1.096 | **NO**, 0/3 | 90〜119 | `q_d2imb_throughput_thr01` |
+
+test MSE はシードの中央値。バッチサイズはエポック数によって変わる（公式のバッチ則）。復活の延べ数は公式の `n_splits`（学習中に復活させた重心の累計。同じ重心の再復活も数える）で、1 回の学習あたりの値の範囲。どの構成も空クラスタは 0。
+
+- 再現性の確認: 「quality・閾値 0」は、既存の `scale_20261112-0338_d2_t4` の imbalanced の 48 行すべてで、test / train MSE・空クラスタ・バッチ設定がビット単位で一致した（d=2 の公式デフォルトがこの組み合わせであることの確認）。
+- 参考: 公式デフォルトの初期化（ランダム）の e-means は、4 通りすべてで Lloyd25 には到達し（3〜5 エポック）、Lloyd++25 には届かなかった（最良 / Lloyd++ = 1.33〜1.40）。こちらは初期化の差が支配的で、復活・バッチの決め方の影響は小さい。
+
+### 結論（この条件の範囲に限る）
+
+6. **d=2 で到達したのは、復活が無効になったためである。バッチの決め方（quality 則）は主因ではない。** 復活を無効にすると、バッチの決め方によらず到達した（0.976 / 0.978）。復活を有効（0.1）にすると、どちらのバッチの決め方でも未到達だった（1.138 / 1.096）。バッチの決め方の差は、到達に要するエポック数（1 対 2）の違いにとどまった。結論 1（主因はクラスタ復活）が、d=64 に加えて d=2 でも、バッチの決め方と切り分けた形で再現した。
+7. **k-means++ の初期重心から始めても、復活は多数発動する。** 閾値 0.1 の e-means++ では、1 回の学習で延べ 90〜298 回（k = 1,024 の 9〜29% に相当）の復活が起きた。エポック数を 1 から 10 に増やしても延べ数はほとんど増えず（throughput 則 95〜103 → 110〜114）、quality 則ではむしろ減った（284〜298 → 161〜174）。発動は学習の初期に集中していると考えられる（発動時期は未記録）。
+8. quality 則（小さいバッチ）では、復活の延べ数が同じエポック数の throughput 則の約 1.5〜3 倍で、品質の低下も大きかった（1.138 対 1.096）。復活の判定は 5 更新ごとに行われるため、更新回数の多い小さいバッチほど発動の機会が増えると考えられる（未検証）。
+
 ## 再現コマンド
 
 ```bash
@@ -59,6 +88,12 @@ uv run python benchmark.py $C --datasets imbalanced --emeans-inits kmeanspp --im
 uv run python benchmark.py $C --datasets imbalanced --emeans-inits kmeanspp --imbalance-exponent 1.6 --run-name q_imb_exp16
 uv run python benchmark.py $C --datasets imbalanced --emeans-inits kmeanspp --imbalance-exponent 1.6 --emeans-unused-threshold 0 --run-name q_imb_exp16_thr0
 uv run python benchmark.py $C --datasets separated --emeans-inits kmeanspp --emeans-unused-threshold 0 --run-name q_sep_thr0
+
+# 追加調査（d=2）: 既定の設定（初期化・反復・エポック）で実行
+for law in quality throughput; do for thr in 0 0.1; do
+  uv run python benchmark.py --profile medium --threads 4 --seeds 0 1 2 --dim 2 --datasets imbalanced --quality-only \
+      --emeans-batch-law $law --emeans-unused-threshold $thr --run-name q_d2imb_${law}_thr${thr/./}
+done; done
 ```
 
 ## 次の検証候補
