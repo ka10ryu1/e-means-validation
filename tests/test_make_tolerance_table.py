@@ -30,18 +30,20 @@ def rows_fixture():
     return out
 
 
-def make_run(tmp_path, rows, *, quality_only=False, committed_tol=0.01, tamper=False):
+def make_run(tmp_path, rows, *, quality_only=False, committed_tol=0.01, tamper=False,
+             baseline_niter=25):
     name = "run_x"
     results, reports = tmp_path / "results" / name, tmp_path / "reports" / name
     results.mkdir(parents=True)
     reports.mkdir(parents=True)
     analysis.write_csv(results / "raw_results.csv", rows, RAW_KEYS)
     parsed = analysis.read_raw_csv(results / "raw_results.csv")
-    comps = analysis.compare(parsed, analysis.summarize(parsed), 25, committed_tol)
+    comps = analysis.compare(parsed, analysis.summarize(parsed), baseline_niter, committed_tol)
     if tamper:
         comps[0]["emeans_min_passes_reached"] = 99
     analysis.write_csv(reports / "comparison.csv", comps)
-    meta = dict(run_name=name, baseline_niter=25, tolerance=0.01, quality_only=quality_only)
+    meta = dict(run_name=name, baseline_niter=baseline_niter, tolerance=0.01,
+                quality_only=quality_only)
     (reports / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
     return reports
 
@@ -50,8 +52,8 @@ def test_cells_change_with_tolerance(tmp_path):
     run = mtt.load_run(make_run(tmp_path, rows_fixture()))
     assert run["show_speed"] is True
     text = mtt.render([run], [0.01, 0.005, 0.001, 0.0])
-    line = next(l for l in text.splitlines() if l.startswith("| `run_x` | d |"))
-    cells = [c.strip() for c in line.strip("|").split("|")][2:]
+    line = next(l for l in text.splitlines() if l.startswith("| `run_x` | d | L25 |"))
+    cells = [c.strip() for c in line.strip("|").split("|")][3:]
     # 1%: e-means 1 ep (1.0 s) vs Lloyd5 (2.0 s); 0.5%: Lloyd10 needed (4.0 s);
     # 0.1%: e-means 1 ep (0.3% above) fails -> 3 ep (2.0 s) vs Lloyd10; 0%: Lloyd25 only.
     assert cells == ["1 ep / L5 / 2× (3/3)", "1 ep / L10 / 4× (3/3)",
@@ -90,3 +92,12 @@ def test_missing_raw_data_is_an_error(tmp_path):
     (tmp_path / "results" / "run_x" / "raw_results.csv").unlink()
     with pytest.raises(FileNotFoundError):
         mtt.load_run(reports)
+
+
+def test_non_default_baseline_niter_is_rendered(tmp_path):
+    # benchmark.py --baseline-niter 10: rows must not be dropped (Codex review on #6).
+    run = mtt.load_run(make_run(tmp_path, rows_fixture(), baseline_niter=10))
+    line = next(l for l in mtt.render([run], [0.01]).splitlines()
+                if l.startswith("| `run_x` | d | L10 |"))
+    # threshold = Lloyd10 * 1.01: e-means 1 ep (1.0 s) vs Lloyd5 (2.0 s)
+    assert "1 ep / L5 / 2× (3/3)" in line

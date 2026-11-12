@@ -27,9 +27,11 @@ from pathlib import Path
 from emv import analysis
 
 DEFAULT_TOLERANCES = (0.01, 0.005, 0.001, 0.0)
+# (key, baseline algorithm, candidate, title). The baseline iteration count comes
+# from each run's metadata (benchmark.py --baseline-niter), not a fixed 25.
 COMPARISONS = (
-    ("A", "faiss_kmeans@25", "e_means", "公式デフォルトの e-means 対 Lloyd25"),
-    ("B", "faiss_kmeans_pp@25", "e_means_pp", "e-means++ 対 Lloyd++25（初期重心が同一）"),
+    ("A", "faiss_kmeans", "e_means", "公式デフォルトの e-means 対 Lloyd（基準反復）"),
+    ("B", "faiss_kmeans_pp", "e_means_pp", "e-means++ 対 Lloyd++（基準反復、初期重心が同一）"),
 )
 # Columns compared against the committed comparison.csv (reproducibility check).
 CHECK_KEYS = ("emeans_reached", "emeans_min_passes_reached", "kmeans_fastest_niter_within_tol",
@@ -109,25 +111,27 @@ def render(runs: list[dict], tolerances: list[float]) -> str:
         "## 許容幅を変えた再読（既存の生データから再計算、新しい計測なし）", "",
         "判定規則（基準の 1% 以内）は変えていない。同じ生データ・同じ集計コードで許容幅だけを変えた補足の読み方。",
         "",
-        "セル: e-means が到達した最少エポック / 同じ許容幅で到達した Lloyd の最短反復（L5・L10・L25）"
+        "セル: e-means が到達した最少エポック / 同じ許容幅で到達した Lloyd の最短反復（例: L5・L10・L25。基準列は基準の反復数）"
         " / 倍率 vs 同手法最短（中央値の秒の比）（シード別到達数）。",
         "未到達は **NO**（e-means 最良 MSE ÷ 基準 MSE）。倍率は時間を計測し CPU の取り合いを検出しなかった実行のみ表示。",
         "倍率は「到達した中で最速の e-means 構成」と「同じ許容幅で到達した最速の Lloyd」の比。",
         "",
     ]
     cols = [_pct(t) for t in tolerances]
-    for key, baseline, candidate, title in COMPARISONS:
+    for key, base_alg, candidate, title in COMPARISONS:
         out += [f"### {key}. {title}", "",
-                "| 実行 | データ | " + " | ".join(cols) + " |",
-                "|---|---|" + "---|" * len(cols)]
+                "| 実行 | データ | 基準 | " + " | ".join(cols) + " |",
+                "|---|---|---|" + "---|" * len(cols)]
         for run in runs:
+            niter = run["meta"]["baseline_niter"]
+            baseline = f"{base_alg}@{niter}"
             per_tol = [comparisons_at(run, t) for t in tolerances]
             for dataset in sorted({r["dataset"] for r in run["rows"]}):
                 cells = [cell(p.get((dataset, baseline, candidate)), run["show_speed"])
                          for p in per_tol]
                 if all(c == "—" for c in cells):
                     continue
-                out.append(f"| `{run['name']}` | {dataset} | " + " | ".join(cells) + " |")
+                out.append(f"| `{run['name']}` | {dataset} | L{niter} | " + " | ".join(cells) + " |")
         out.append("")
     skipped = [r for r in runs if not r["show_speed"]]
     if skipped:
