@@ -18,6 +18,7 @@ Meta FAIR の e-means（`faiss.contrib.e_means`）の主張を、CPU上で独立
 | `benchmark.py` | CLI。スレッド環境変数を numpy/faiss import 前に設定する（この順序を崩さない） |
 | `make_report.py` | `results/<run>/raw_results.csv` から集計・レポートを再生成 |
 | `make_scaling_table.py` | 複数の `reports/<run>/` から規模を振った比較表を生成（新しい計測はしない） |
+| `make_tolerance_table.py` | 既存の生データから許容幅だけを変えて比較を再計算（補足の読み方、規則は 1% のまま） |
 | `prepare_real_data.py` | 公開実データ（SIFT1M・DEEP1M）を `data/<name>.npy` に取得・変換。SHA-256 を固定し不一致はエラー |
 | `emv/official.py` | 公式ソースの読み込みと読み込み元・SHA・ハッシュ検証 |
 | `emv/data.py` | データ生成（キットと同一）、プロファイル |
