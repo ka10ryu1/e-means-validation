@@ -103,7 +103,15 @@ bash scripts/run_speed_suite.sh --profiles medium --max-wait-min 120
 bash scripts/run_scaling_suite.sh                     # 規模を振る検証（k・n・d を 1 つずつ、約 3 時間）
 bash scripts/run_scaling_suite.sh --points "k4096 n1m" # 一部の点だけ
 bash scripts/run_speed_suite.sh --profiles "" --real "sift1m deep1m"  # 実データ（medium 規模）だけ
+bash scripts/run_night_suite.sh                       # 未計測の夜間課題を順に（下記）
 ```
+
+`run_night_suite.sh` は、未計測の速度の課題を安い順に 1 つずつ実行します（途中で止まっても、終わった分のレポートは揃います）。
+
+1. 低次元で throughput 則を明示した規模の点 `d2tp`・`d16tp`（4 スレッド、約 10 分）。公式デフォルトは d ≤ 16 で quality 則を選ぶので、既存の `d2`・`d16` と比べて、e-means が低次元で遅い原因がバッチの小ささかを切り分けます。
+2. Medium をスレッド数 6 → 4 → 2 → 1 で計測します。4 スレッドは計測済みですが、スレッド数の比較を同じ夜の計測どうしで行うために再計測します（品質は前回とビット単位で一致するはずなので、その確認にもなります）。6 は本環境の論理コア数のすべてなので、他のプロセスとの取り合いが起きやすくなります。
+
+各段は元のスイートと同じ確認（未コミットの変更がないこと、ロードアベレージ、取り合いの数）をします。スレッド数をそろえた比較表は `make_scaling_table.py` に Medium の `speed_*_medium_t{1,2,4,6}` レポートを渡して作れます（行ラベルにスレッド数が出ます）。
 
 - 未コミットの変更があると実行しません（結果をコミットに対応させるため）。
 - 1 分ロードアベレージが 1.0 未満になるまで待ってから開始します（`--max-wait-min` 分待っても下がらなければ中止）。

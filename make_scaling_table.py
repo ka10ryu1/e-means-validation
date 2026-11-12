@@ -54,8 +54,13 @@ def load_run(report_dir: Path) -> dict:
 
 
 def size_label(run: dict) -> str:
-    s = run["meta"]["settings"]
-    return f"n={s['ntrain']:,} k={s['k']:,} d={s['dim']}"
+    meta = run["meta"]
+    s = meta["settings"]
+    label = f"n={s['ntrain']:,} k={s['k']:,} d={s['dim']}"
+    law = meta.get("emeans_batch_law", "auto")
+    if law != "auto":
+        label += f" batch_law={law}"
+    return label + f" / {meta.get('threads', '?')} スレッド"
 
 
 def cost_ratio(run: dict, dataset: str) -> float:
