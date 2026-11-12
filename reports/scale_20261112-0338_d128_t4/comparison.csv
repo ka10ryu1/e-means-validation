@@ -1,0 +1,13 @@
+dataset,baseline,candidate,baseline_median_test_mse,threshold_test_mse,baseline_median_seconds,emeans_reached,emeans_min_passes_reached,emeans_min_passes_median_empty_clusters,emeans_best_passes,emeans_best_median_seconds,emeans_best_median_test_mse,emeans_best_median_empty_clusters,speedup_vs_baseline,kmeans_fastest_niter_within_tol,kmeans_fastest_median_seconds,speedup_vs_fastest_kmeans,emeans_best_mse_ratio,per_seed_reached,per_seed_speedup_median,per_seed_speedup_min,per_seed_speedup_max
+gaussian,faiss_kmeans@25,e_means,117.97815467,119.15793622,9.8944,True,1,0.0,1,0.70399,117.75166173,0.0,14.055,5,2.35905,3.351,0.99801,3/3,14.482,14.055,16.21
+gaussian,faiss_kmeans@25,e_means_pp,117.97815467,119.15793622,9.8944,True,1,0.0,1,2.45664,117.76914276,0.0,4.028,5,2.35905,0.96,0.99792,3/3,4.288,3.993,4.793
+gaussian,faiss_kmeans_pp@25,e_means,118.00857329,119.18865902,12.61995,True,1,0.0,1,0.70399,117.75166173,0.0,17.926,5,4.15866,5.907,0.99776,3/3,17.926,17.222,20.726
+gaussian,faiss_kmeans_pp@25,e_means_pp,118.00857329,119.18865902,12.61995,True,1,0.0,1,2.45664,117.76914276,0.0,5.137,5,4.15866,1.693,0.99766,3/3,5.093,5.093,6.137
+imbalanced,faiss_kmeans@25,e_means,254.09363684,256.63457321,11.9912,True,1,140.0,1,0.71281,256.2310326,140.0,16.822,5,2.17082,3.045,0.95256,3/3,15.552,8.153,16.822
+imbalanced,faiss_kmeans@25,e_means_pp,254.09363684,256.63457321,11.9912,True,1,123.0,1,2.51753,235.29681143,123.0,4.763,5,2.17082,0.862,0.88264,3/3,4.763,4.235,4.795
+imbalanced,faiss_kmeans_pp@25,e_means,178.91261989,180.70174609,13.63475,False,,,,,,,,5,4.29371,,1.35284,0/3,,,
+imbalanced,faiss_kmeans_pp@25,e_means_pp,178.91261989,180.70174609,13.63475,False,,,,,,,,5,4.29371,,1.25354,0/3,,,
+separated,faiss_kmeans@25,e_means,479.43953971,484.23393511,7.15148,True,1,70.0,1,0.6809,372.86985836,70.0,10.503,5,2.35889,3.464,0.52575,3/3,10.503,8.227,11.979
+separated,faiss_kmeans@25,e_means_pp,479.43953971,484.23393511,7.15148,True,1,41.0,1,2.4843,244.92105443,41.0,2.879,5,2.35889,0.95,0.4462,3/3,2.879,2.384,2.988
+separated,faiss_kmeans_pp@25,e_means,259.85256646,262.45109212,8.91517,True,10,0.0,10,7.23209,252.06737016,0.0,1.233,5,4.05659,0.561,0.97004,2/3,1.971,1.313,2.63
+separated,faiss_kmeans_pp@25,e_means_pp,259.85256646,262.45109212,8.91517,True,1,41.0,1,2.4843,244.92105443,41.0,3.589,5,4.05659,1.633,0.82327,3/3,3.589,2.68,3.662
