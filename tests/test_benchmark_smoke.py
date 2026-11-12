@@ -94,6 +94,26 @@ def test_size_overrides(official_source, tmp_path):
     assert "プロファイルの値を上書き" in (rep / "report.md").read_text()
 
 
+def test_real_input_labels_dataset_by_file_stem(official_source, tmp_path):
+    import hashlib
+    import numpy as np
+    src = tmp_path / "toy_real.npy"
+    np.save(src, np.random.default_rng(0).standard_normal((1500, 8)).astype(np.float32))
+    out, rep = tmp_path / "raw", tmp_path / "rep"
+    subprocess.run(
+        [sys.executable, "benchmark.py", "--profile", "smoke", "--threads", "1",
+         "--input", str(src), "--ntrain", "1000", "--ntest", "300", "--k", "8",
+         "--seeds", "0", "--kmeans-niters", "25", "--emeans-epochs", "1",
+         "--kmeans-inits", "random", "--emeans-inits", "random", "--quality-only",
+         "--out", str(out), "--report-dir", str(rep), "--run-name", "pytest-real"],
+        cwd=ROOT, check=True, capture_output=True, text=True)
+    meta = json.loads((out / "metadata.json").read_text())
+    assert meta["datasets"] == ["toy_real"] and meta["settings"]["dim"] == 8
+    assert meta["input_sha256"] == hashlib.sha256(src.read_bytes()).hexdigest()
+    with (out / "raw_results.csv").open() as f:
+        assert {r["dataset"] for r in csv.DictReader(f)} == {"toy_real"}
+
+
 def test_dim_override_rejected_with_input(tmp_path):
     import pytest
     from benchmark import parse_args

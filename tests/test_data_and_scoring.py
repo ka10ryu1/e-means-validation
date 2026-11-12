@@ -76,3 +76,28 @@ def test_imbalance_exponent_default_matches_kit_and_zero_is_balanced():
     c, _ = data.synthetic_data("imbalanced", 500, 10, 8, 10, imbalance_exponent=0.0)
     d, _ = data.synthetic_data("separated", 500, 10, 8, 10)
     np.testing.assert_array_equal(c, d)
+
+
+def test_parse_fvecs_roundtrip_and_rejects_bad_rows():
+    x = np.arange(12, dtype=np.float32).reshape(3, 4)
+    words = np.hstack([np.full((3, 1), 4, np.int32), x.view(np.int32)])
+    np.testing.assert_array_equal(data.parse_fvecs(words.tobytes()), x)
+    words[1, 0] = 5
+    with pytest.raises(ValueError):
+        data.parse_fvecs(words.tobytes())
+    with pytest.raises(ValueError):
+        data.parse_fvecs(words.tobytes()[:-4])
+
+
+def test_parse_fbin_prefix_reads_leading_rows():
+    x = np.arange(20, dtype=np.float32).reshape(5, 4)
+    full = np.array([1_000, 4], np.uint32).tobytes() + x.tobytes()
+    prefix = full[:8 + 3 * 4 * 4]  # byte range covering the first 3 rows
+    np.testing.assert_array_equal(data.parse_fbin_prefix(prefix, 3, 4), x[:3])
+    with pytest.raises(ValueError):
+        data.parse_fbin_prefix(prefix, 3, 5)  # wrong dim
+    with pytest.raises(ValueError):
+        data.parse_fbin_prefix(prefix[:-1], 3, 4)  # truncated
+    small = np.array([2, 4], np.uint32).tobytes() + x[:3].tobytes()
+    with pytest.raises(ValueError):
+        data.parse_fbin_prefix(small, 3, 4)  # header has fewer rows than requested

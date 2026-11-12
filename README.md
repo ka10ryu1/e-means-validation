@@ -83,6 +83,10 @@ uv run python benchmark.py --profile quick --datasets imbalanced --seeds 10 11 1
 uv run python make_report.py results/<run-name>
 uv run python make_scaling_table.py reports/<run1> reports/<run2> ...  # 規模を振った比較表
 
+# 公開実データ（SIFT1M・DEEP1M の 1M 行）の取得と変換（約 550MB、data/ に保存、Git 管理外）
+uv run python prepare_real_data.py
+uv run python benchmark.py --profile medium --input data/sift1m.npy --threads 4 --quality-only
+
 # 品質（MSE）だけを見る実験（他の作業と並行してよい。レポートに時間・倍率を出さない）
 uv run python benchmark.py --profile medium --datasets imbalanced --quality-only \
     --emeans-unused-threshold 0 --run-name q_imb_norevival
@@ -97,6 +101,7 @@ bash scripts/run_speed_suite.sh                       # quick（3 反復）→ m
 bash scripts/run_speed_suite.sh --profiles medium --max-wait-min 120
 bash scripts/run_scaling_suite.sh                     # 規模を振る検証（k・n・d を 1 つずつ、約 3 時間）
 bash scripts/run_scaling_suite.sh --points "k4096 n1m" # 一部の点だけ
+bash scripts/run_speed_suite.sh --profiles "" --real "sift1m deep1m"  # 実データ（medium 規模）だけ
 ```
 
 - 未コミットの変更があると実行しません（結果をコミットに対応させるため）。
@@ -276,12 +281,14 @@ e-means-validation/
 ├── make_report.py            # 集計・レポート再生成
 ├── make_scaling_table.py     # 規模を振った比較表（複数レポートから）
 ├── emv/                      # data / runners / analysis / official
+├── prepare_real_data.py      # 公開実データの取得・.npy 変換（SHA-256 固定）
 ├── scripts/setup_faiss.sh    # 公式ソース取得（SHA 固定）
 ├── tests/                    # pytest
 ├── docs/methodology.md       # 検証方法論
 ├── docs/validation-kit.md    # 既存検証キットからの移行記録
 ├── reports/                  # 集計レポート（Git 管理）
 ├── results/                  # 生データ（Git 管理外）
+├── data/                     # 公開実データ（Git 管理外）
 └── faiss-src/                # 公式ソース（Git 管理外）
 ```
 

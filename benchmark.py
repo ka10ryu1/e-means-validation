@@ -178,7 +178,16 @@ def main(argv=None):
     except Exception:  # informational only; numpy versions differ
         blas = "unknown"
 
-    datasets = ["real"] if args.input else args.datasets
+    # real data: the dataset label is the file stem (e.g. sift1m), and the file hash is recorded
+    datasets = [args.input.stem] if args.input else args.datasets
+    input_sha256 = None
+    if args.input:
+        import hashlib
+        h = hashlib.sha256()
+        with args.input.open("rb") as f:
+            for chunk in iter(lambda: f.read(1 << 22), b""):
+                h.update(chunk)
+        input_sha256 = h.hexdigest()
     metadata = {
         "run_name": run_name,
         "started_at": started_at.isoformat(timespec="seconds"),
@@ -200,6 +209,7 @@ def main(argv=None):
                       "両者に同一の初期重心（RandomState(seed).permutation(n)[:k] の行）を与える"),
         "order": args.order, "warmup": not args.no_warmup,
         "input": official.display_path(args.input) if args.input else "synthetic",
+        "input_sha256": input_sha256,
         "data_seed": data.DATA_SEED,
         "faiss_version": getattr(faiss, "__version__", "unknown"),
         "numpy_version": np.__version__, "numpy_blas": blas,
