@@ -50,3 +50,36 @@ def test_coverage_counts_blobs():
     centers = np.array([[0.1, 0], [-0.1, 0], [10, 0.2]], dtype=np.float32)
     cov = revival.coverage(faiss, centers, true, prob)
     assert cov == dict(uncovered_blobs=1, uncovered_mass=0.2, crowded_blobs=1, spare_centroids=1)
+
+
+def test_warmup_skips_checks_without_drawing(official_source):
+    """Skipping every check equals no revival; skipping some delays the first split."""
+    import faiss
+
+    from emv import official, revival, runners
+    NumpyEmeans = official.load_official_emeans(faiss)
+    tr, _, truth = data.synthetic_truth("imbalanced", 4000, 10, 16, 32)
+    init = runners.kmeanspp_init(faiss, tr, 32, seed=0)
+    kw = dict(seed=0, nepochs=3, batch_size=256)
+
+    def run(warmup, thr):
+        cls = revival.make_recorder(NumpyEmeans, faiss, truth["centers"], truth["prob"],
+                                    warmup_checks=warmup)
+        model = cls(16, 32, unused_threshold=thr, **kw)
+        centers, _ = model.train(tr, init_centroids=init)
+        return model, centers
+
+    off, c_off = run(0, 0.0)
+    total = off.recipe["total_steps"] // 5
+    all_skipped, c_all = run(total, 0.5)
+    assert off.n_splits == all_skipped.n_splits == 0
+    assert np.array_equal(c_off, c_all)
+    assert all(c["skipped"] for c in all_skipped.checks)
+
+    full, _ = run(0, 0.5)
+    late, _ = run(3, 0.5)
+    assert full.n_splits > 0 and not any(c["skipped"] for c in full.checks)
+    assert [c["skipped"] for c in late.checks[:4]] == [True, True, True, False]
+    assert all(c["nsplit"] == 0 for c in late.checks[:3])
+    assert all(e["check"] >= 3 for e in late.events)
+    assert sum(c["nsplit"] for c in late.checks) == late.n_splits
