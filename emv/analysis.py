@@ -344,7 +344,8 @@ def render_report(metadata: dict, summaries: list[dict], comparisons: list[dict]
         f"- Faiss k-means 反復数: {m['kmeans_niters']}  / e-means エポック数: {m['emeans_epochs']}",
         f"- e-means 設定: batch_law=`{m.get('emeans_batch_law', 'auto')}`, "
         f"unused_threshold=`{m.get('emeans_unused_threshold')}`（None = 公式デフォルト）"
-        f"  / imbalanced の指数: {m.get('imbalance_exponent', 1.3)}",
+        + (f"  / imbalanced の指数: {m.get('imbalance_exponent', 1.3)}"
+           if m.get("input", "synthetic") == "synthetic" else ""),
         f"- faiss-cpu {m['faiss_version']}, numpy {m['numpy_version']}, Python {m['python_version']}",
         f"- 公式ソース: facebookresearch/faiss @ `{src.get('faiss_source_sha', '?')}` "
         f"(固定SHAと一致: {src.get('faiss_source_matches_pin')}, "
