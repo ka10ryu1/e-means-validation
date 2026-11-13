@@ -1,0 +1,5 @@
+dataset,baseline,candidate,baseline_median_test_mse,threshold_test_mse,baseline_median_seconds,emeans_reached,emeans_min_passes_reached,emeans_min_passes_median_empty_clusters,emeans_best_passes,emeans_best_median_seconds,emeans_best_median_test_mse,emeans_best_median_empty_clusters,speedup_vs_baseline,kmeans_fastest_niter_within_tol,kmeans_fastest_median_seconds,speedup_vs_fastest_kmeans,emeans_best_mse_ratio,per_seed_reached,per_seed_speedup_median,per_seed_speedup_min,per_seed_speedup_max
+sift1m,faiss_kmeans@25,e_means,51576.06647031,52091.82713501,11.93519,True,1,0.0,1,0.74132,51993.11641719,0.0,16.1,5,2.34595,3.165,0.99631,5/5,16.1,15.411,16.354
+sift1m,faiss_kmeans@25,e_means_pp,51576.06647031,52091.82713501,11.93519,True,1,0.0,1,2.46719,52069.538925,0.0,4.838,5,2.34595,0.951,0.99639,5/5,4.276,4.018,4.866
+sift1m,faiss_kmeans_pp@25,e_means,51577.91939219,52093.69858611,13.80944,True,1,0.0,1,0.74132,51993.11641719,0.0,18.628,10,5.90581,7.967,0.99628,5/5,19.013,15.926,20.889
+sift1m,faiss_kmeans_pp@25,e_means_pp,51577.91939219,52093.69858611,13.80944,True,1,0.0,1,2.46719,52069.538925,0.0,5.597,10,5.90581,2.394,0.99635,5/5,5.389,3.974,5.759
