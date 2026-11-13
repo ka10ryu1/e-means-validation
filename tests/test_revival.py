@@ -1,5 +1,6 @@
 """The revival recorder must observe training without changing it."""
 import numpy as np
+import pytest
 
 from conftest import ROOT  # noqa: F401  (puts the repo on sys.path)
 from emv import data
@@ -120,3 +121,15 @@ def test_diagnose_parse_args_overrides():
     assert (args.ntrain, args.k, args.ntest, args.dim) == (800000, 256, 5000, None)
     with pytest.raises(SystemExit):
         parse_args(["--run-name", "x", "--k", "0"])
+
+
+def test_dip_model_limits():
+    """The dip model: tiny blobs always dip, large blobs never do; r50 interpolates."""
+    import numpy as np
+
+    from model_revival_dip import p_dip, r50
+    rng = np.random.default_rng(0)
+    assert p_dip(20000, 64, 512, 0.3, 1, 1, 0.01, 50, rng) == 1.0
+    assert p_dip(20000, 64, 512, 0.3, 1, 2000, 0.01, 50, rng) == 0.0
+    assert r50([10, 20], [1.0, 0.0]) == pytest.approx(np.sqrt(200))
+    assert r50([10, 20], [0.4, 0.0]) is None
