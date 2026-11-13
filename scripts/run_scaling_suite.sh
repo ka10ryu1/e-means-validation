@@ -7,6 +7,9 @@
 #
 # The medium point itself is not re-run: use the latest speed_*_medium_t4 report.
 # Each point uses seeds 0 1 2 and all three datasets. Same guards as run_speed_suite.sh.
+# Extra points, not in the default set: d2tp / d16tp = d2 / d16 with
+# --emeans-batch-law throughput (the official default picks the quality law at d <= 16),
+# to separate the low-d slowness of e-means from its small batches.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,6 +38,8 @@ point_args() {
     d16)   echo "--dim 16" ;;
     d128)  echo "--dim 128" ;;
     d768)  echo "--dim 768" ;;
+    d2tp)  echo "--dim 2 --emeans-batch-law throughput" ;;
+    d16tp) echo "--dim 16 --emeans-batch-law throughput" ;;
     *) echo "unknown point: $1" >&2; return 1 ;;
   esac
 }

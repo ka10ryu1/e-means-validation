@@ -27,6 +27,7 @@ Meta FAIR の e-means（`faiss.contrib.e_means`）の主張を、CPU上で独立
 | `emv/analysis.py` | 集計、品質一致倍率、Markdown レポート |
 | `scripts/setup_faiss.sh` | 固定SHAの公式ソース取得 |
 | `scripts/run_speed_suite.sh` / `run_scaling_suite.sh` | 作業のない時間帯の速度計測（共通処理は `_suite_common.sh`） |
+| `scripts/run_night_suite.sh` | 上の 2 つを順に呼び、未計測の夜間課題を一晩で回す |
 | `results/` | 生データ（Git 管理外） |
 | `reports/<run>/` | 集計CSV・metadata.json・report.md（Git 管理対象） |
 
@@ -50,6 +51,7 @@ uv run pytest
 uv run python benchmark.py --profile quick --threads 4
 uv run python benchmark.py --profile medium --threads 4
 bash scripts/run_scaling_suite.sh   # 規模を振る検証。作業のない時間帯に（約 3 時間）
+bash scripts/run_night_suite.sh    # 未計測の夜間課題（低次元 throughput 則 → Medium 6/4/2/1 スレッド）
 uv run python make_report.py results/<run-name>
 ```
 
@@ -69,3 +71,8 @@ uv run python make_report.py results/<run-name>
 3. README の「7. 実測結果」の速度の数値（秒・倍率）を、夜間計測の値に差し替える。日中計測の注記（取り合い・計時の再現性）は、夜間の結果と比べたうえで残すか書き直す。品質（MSE・到達・空クラスタ）は計測時刻に依存しないので、値が一致することを確認するだけでよい。
 4. 解釈（倍率、1 エポックあたりのコスト比など）の数値も夜間の値で見直し、変わった結論は明記する。
 5. レポートと README をコミットし、PR のブランチに push する（PR がマージ済みなら `main` から新しいブランチを作って PR を出す）。
+
+`run_night_suite.sh` の後は、1・2 の確認に加えて次を行う（README の既存の数値は差し替えない。新しい節として追加する）。
+
+- `scale_<日時>_d2tp_t4`・`scale_<日時>_d16tp_t4` を既存の `scale_20261112-0338_d2_t4`・`_d16_t4` と `make_scaling_table.py` で並べ、1 エポックの時間比（quality 則 → throughput 則）と品質の変化を見る。
+- `speed_<日時>_medium_t{6,4,2,1}`（同じ夜の計測）を並べる。同じ夜の t4 の品質が `speed_20261111-1905_medium_t4` と一致すること、時間のずれの大きさを確認して記録する。

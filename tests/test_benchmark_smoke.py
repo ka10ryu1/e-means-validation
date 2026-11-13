@@ -127,7 +127,7 @@ def test_scaling_table_from_committed_report(tmp_path):
     subprocess.run([sys.executable, "make_scaling_table.py", str(report), str(report),
                     "--out", str(out)], cwd=ROOT, check=True, capture_output=True, text=True)
     text = out.read_text()
-    assert text.count("| n=200,000 k=1,024 d=64 |") == 6  # 2 rows x 3 tables
+    assert text.count("| n=200,000 k=1,024 d=64 / 4 スレッド |") == 6  # 2 rows x 3 tables
     # values copied from comparison.csv: e-means vs Lloyd25 on gaussian, 1 epoch, 3.13x
     assert "1 ep / 3.13× / 空 0（5/5）" in text
     assert "**NO**（1.24、0/5）" in text  # e-means++ vs Lloyd++25 on imbalanced
