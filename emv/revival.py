@@ -25,6 +25,8 @@ EVENT_KEYS = ["check", "step", "epoch", "step_fraction", "target", "source",
               "target_mass_ratio", "source_mass_ratio",
               "target_blob", "target_blob_ratio", "target_blob_owners", "target_dist2_per_dim",
               "source_blob", "source_blob_ratio", "source_blob_owners"]
+SNAPSHOT_KEYS = ["check", "step", "epoch", "step_fraction", "centroid", "mass_ratio",
+                 "blob", "blob_ratio", "blob_owners", "dist2_per_dim", "capture", "purity"]
 CHECK_KEYS = ["check", "step", "epoch", "step_fraction", "skipped", "n_below", "n_donors",
               "nsplit", "threshold_ratio"]
 
@@ -35,7 +37,8 @@ def nearest_blob(faiss, points, true_centers):
     return idx.ravel(), dist.ravel()
 
 
-def make_recorder(NumpyEmeans, faiss, true_centers, prob, warmup_checks=0):
+def make_recorder(NumpyEmeans, faiss, true_centers, prob, warmup_checks=0,
+                  train=None, train_group=None):
     """A NumpyEmeans subclass that logs revival checks into ``.checks`` / ``.events``.
 
     Masses are reported as ratios to the mean EMA mass at check time (the
@@ -45,6 +48,13 @@ def make_recorder(NumpyEmeans, faiss, true_centers, prob, warmup_checks=0):
     the number of centroids whose nearest blob it is, before the split.
     With ``warmup_checks`` > 0 the first checks are skipped (see module doc);
     they are still logged, with ``skipped=True`` and ``nsplit=0``.
+
+    With ``train`` and ``train_group`` (the blob of each training row), every
+    check also stores a per-centroid snapshot in ``.snapshots`` (keys
+    ``SNAPSHOT_KEYS``): ``capture`` is the share of the centroid's nearest
+    blob's training rows whose nearest centroid it is, ``purity`` the share of
+    the rows assigned to it that come from that blob (exact ``faiss.knn`` on
+    the centroids at check time). Read-only, like the rest of the recorder.
     """
     if warmup_checks < 0:
         raise ValueError("warmup_checks must be >= 0")
@@ -52,10 +62,15 @@ def make_recorder(NumpyEmeans, faiss, true_centers, prob, warmup_checks=0):
     true_centers = np.ascontiguousarray(true_centers, dtype=np.float32)
     nblobs = len(true_centers)
     blob_ratio = np.asarray(prob, dtype=np.float64) * nblobs
+    snapshot = train is not None
+    if snapshot:
+        train = np.ascontiguousarray(train, dtype=np.float32)
+        train_group = np.asarray(train_group)
+        blob_rows = np.bincount(train_group, minlength=nblobs)
 
     class RevivalRecorder(NumpyEmeans):
         def begin(self, global_n, init_centroids):
-            self.checks, self.events = [], []
+            self.checks, self.events, self.snapshots = [], [], []
             return super().begin(global_n, init_centroids)
 
         def _choose_splits(self, rng):
@@ -73,6 +88,8 @@ def make_recorder(NumpyEmeans, faiss, true_centers, prob, warmup_checks=0):
                 check=check, step=self._step, epoch=self._epoch, step_fraction=fraction,
                 skipped=skipped, n_below=int(below.sum()), n_donors=int(((~below) & (usage > 0)).sum()),
                 nsplit=nsplit, threshold_ratio=threshold / mean if mean > 0 else 0.0))
+            if snapshot:
+                self._snapshot(check, fraction, usage / mean if mean > 0 else usage * 0)
             if nsplit:
                 blob, dist2 = nearest_blob(faiss, self._centroids, true_centers)
                 owners = np.bincount(blob, minlength=nblobs)
@@ -88,6 +105,24 @@ def make_recorder(NumpyEmeans, faiss, true_centers, prob, warmup_checks=0):
                         source_blob=int(blob[s]), source_blob_ratio=float(blob_ratio[blob[s]]),
                         source_blob_owners=int(owners[blob[s]])))
             return source, target
+
+        def _snapshot(self, check, fraction, mass_ratio):
+            blob, dist2 = nearest_blob(faiss, self._centroids, true_centers)
+            owners = np.bincount(blob, minlength=nblobs)
+            _, label = faiss.knn(train, np.ascontiguousarray(self._centroids), 1)
+            label = label.ravel()
+            assigned = np.bincount(label, minlength=self.k)
+            # rows of blob[c] that go to c, for every centroid c
+            own = np.bincount(label[train_group == blob[label]], minlength=self.k)
+            for c in range(self.k):
+                b = int(blob[c])
+                self.snapshots.append(dict(
+                    check=check, step=self._step, epoch=self._epoch, step_fraction=fraction,
+                    centroid=c, mass_ratio=float(mass_ratio[c]), blob=b,
+                    blob_ratio=float(blob_ratio[b]), blob_owners=int(owners[b]),
+                    dist2_per_dim=float(dist2[c]) / self.d,
+                    capture=float(own[c]) / blob_rows[b] if blob_rows[b] else 0.0,
+                    purity=float(own[c]) / assigned[c] if assigned[c] else 0.0))
 
     return RevivalRecorder
 
