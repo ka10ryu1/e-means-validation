@@ -14,6 +14,9 @@ official behaviour and is always the only value used with threshold 0.
 blob and how many of that blob's training rows it receives
 (results/<run>/snapshots.csv; read-only, training unchanged).
 
+``--ntrain``, ``--ntest``, ``--k`` and ``--dim`` override the profile (as in
+benchmark.py), e.g. to vary rows per cluster and the batch law's batch size.
+
 Example:
     uv run python diagnose_revival.py --profile medium --dataset imbalanced \\
         --imbalance-exponent 1.0 --thresholds 0.1 0 --run-name rev_imb10
@@ -47,6 +50,9 @@ def parse_args(argv=None):
     p.add_argument("--dataset", choices=("separated", "imbalanced"), default="imbalanced")
     p.add_argument("--imbalance-exponent", type=float, default=1.3)
     p.add_argument("--dim", type=int, default=None, help="Override dimension")
+    p.add_argument("--k", type=int, default=None, help="Override cluster count")
+    p.add_argument("--ntrain", type=int, default=None, help="Override training rows")
+    p.add_argument("--ntest", type=int, default=None, help="Override held-out rows")
     p.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2, 3, 4])
     p.add_argument("--epochs", nargs="+", type=float, default=[1, 3, 10])
     p.add_argument("--thresholds", nargs="+", type=float, default=[0.1, 0.0],
@@ -60,7 +66,11 @@ def parse_args(argv=None):
                    help="Faiss k-means++ reference iterations (0 to skip)")
     p.add_argument("--threads", type=int, default=4)
     p.add_argument("--run-name", required=True)
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    for name in ("dim", "k", "ntrain", "ntest"):
+        if getattr(args, name) is not None and getattr(args, name) < 1:
+            p.error(f"--{name} must be >= 1")
+    return args
 
 
 def main(argv=None):
@@ -83,8 +93,11 @@ def main(argv=None):
     faiss.omp_set_num_threads(args.threads)
 
     settings = dict(data.PROFILES[args.profile])
-    if args.dim is not None:
-        settings["dim"] = args.dim
+    overrides = {name: getattr(args, name) for name in ("ntrain", "ntest", "dim", "k")
+                 if getattr(args, name) is not None}
+    settings.update(overrides)
+    if not 2 <= settings["k"] <= settings["ntrain"]:
+        raise SystemExit("k must be between 2 and ntrain")
     k, dim = settings["k"], settings["dim"]
     train, test, truth = data.synthetic_truth(args.dataset, **settings,
                                               imbalance_exponent=args.imbalance_exponent)
@@ -166,7 +179,7 @@ def main(argv=None):
     metadata = dict(
         run_name=args.run_name, command=["python", *sys.argv],
         started_note="quality-only diagnostic; no timing recorded",
-        profile=args.profile, settings=settings, dataset=args.dataset,
+        profile=args.profile, settings=settings, settings_overrides=overrides, dataset=args.dataset,
         imbalance_exponent=args.imbalance_exponent, seeds=args.seeds, epochs=args.epochs,
         thresholds=args.thresholds, warmup_checks=args.warmup_checks, snapshots=args.snapshots, batch_law=args.batch_law, kmeans_niter=args.kmeans_niter,
         threads=args.threads, data_seed=data.DATA_SEED,

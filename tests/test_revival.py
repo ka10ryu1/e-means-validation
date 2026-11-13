@@ -110,3 +110,13 @@ def test_snapshots_are_read_only_and_consistent(official_source):
         by_blob[s["blob"]] = by_blob.get(s["blob"], 0.0) + s["capture"]
     assert all(0 <= v <= 1 + 1e-9 for v in by_blob.values())
     assert all(0 <= s["purity"] <= 1 for s in first)
+
+
+def test_diagnose_parse_args_overrides():
+    import pytest
+
+    from diagnose_revival import parse_args
+    args = parse_args(["--run-name", "x", "--ntrain", "800000", "--k", "256", "--ntest", "5000"])
+    assert (args.ntrain, args.k, args.ntest, args.dim) == (800000, 256, 5000, None)
+    with pytest.raises(SystemExit):
+        parse_args(["--run-name", "x", "--k", "0"])
