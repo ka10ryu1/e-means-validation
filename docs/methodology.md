@@ -135,7 +135,7 @@
 
 ## 6c. クラスタ復活の診断（品質のみ）
 
-- `diagnose_revival.py` は、公式 `NumpyEmeans` のサブクラス（`emv/revival.py`）を通して学習し、5 更新ごとの復活の判定（非公開メソッド `_choose_splits`）を記録する。公式の処理を先に実行してから状態を読むだけで、乱数も状態も変えない。記録しない場合と学習結果がビット単位で一致することをテストで確認している。`_choose_splits` は非公開なので、`FAISS_COMMIT` を更新したら再確認が必要。
+- `diagnose_revival.py` は、公式 `NumpyEmeans` のサブクラス（`emv/revival.py`）を通して学習し、5 更新ごとの復活の判定（非公開メソッド `_choose_splits`）を記録する。公式の処理を先に実行してから状態を読むだけで、乱数も状態も変えない。記録しない場合と学習結果がビット単位で一致することをテストで確認している。`--ntrain` / `--ntest` / `--k` / `--dim` でプロファイルの値を上書きでき、上書きした値は `metadata.json` の `settings_overrides` に記録する。`_choose_splits` は非公開なので、`FAISS_COMMIT` を更新したら再確認が必要。
 - 人工データ（separated・imbalanced）のみが対象。生成を再現して真のブロブ（中心と確率）を得る（`data.synthetic_truth`。`synthetic_data` と同一の出力）。各重心の「ブロブ」は最も近い真の中心とする。
 - `--warmup-checks N`（N > 0）は**本リポジトリの改変**で、公式のアルゴリズムではない。最初の N 回の判定で公式の `_choose_splits` を呼ばず、分割しない。乱数を消費しないので、以降の寄贈元の抽選は公式の実行とずれる。仕組みの検証専用で、公式の既定値についての主張には使わない。N = 0（既定）は公式と同一で、閾値 0 では常に N = 0 だけを実行する。飛ばした判定も `skipped=True` として閾値未満の数を記録する（[findings-revival-warmup.md](findings-revival-warmup.md)）。
 - `--snapshots` は、判定ごとに全重心の EMA 質量・最寄りのブロブ・捕捉率（そのブロブの学習点のうち、判定時の重心に対する厳密 `faiss.knn` でこの重心に割り当てられる割合）・純度を記録する。読み取りだけで、学習は変わらない（テストで確認）（[findings-revival-noise.md](findings-revival-noise.md)）。

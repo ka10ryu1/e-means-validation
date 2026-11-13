@@ -1,5 +1,6 @@
 """The revival recorder must observe training without changing it."""
 import numpy as np
+import pytest
 
 from conftest import ROOT  # noqa: F401  (puts the repo on sys.path)
 from emv import data
@@ -110,3 +111,41 @@ def test_snapshots_are_read_only_and_consistent(official_source):
         by_blob[s["blob"]] = by_blob.get(s["blob"], 0.0) + s["capture"]
     assert all(0 <= v <= 1 + 1e-9 for v in by_blob.values())
     assert all(0 <= s["purity"] <= 1 for s in first)
+
+
+def test_diagnose_parse_args_overrides():
+    import pytest
+
+    from diagnose_revival import parse_args
+    args = parse_args(["--run-name", "x", "--ntrain", "800000", "--k", "256", "--ntest", "5000"])
+    assert (args.ntrain, args.k, args.ntest, args.dim) == (800000, 256, 5000, None)
+    with pytest.raises(SystemExit):
+        parse_args(["--run-name", "x", "--k", "0"])
+
+
+def test_dip_model_limits():
+    """The dip model: tiny blobs always dip, large blobs never do; r50 interpolates."""
+    import numpy as np
+
+    from model_revival_dip import p_dip, r50
+    rng = np.random.default_rng(0)
+    assert p_dip(20000, 64, 512, 0.3, 1, 1, 0.01, 50, rng) == 1.0
+    assert p_dip(20000, 64, 512, 0.3, 1, 2000, 0.01, 50, rng) == 0.0
+    assert r50([10, 20], [1.0, 0.0]) == pytest.approx(np.sqrt(200))
+    assert r50([10, 20], [0.4, 0.0]) is None
+
+
+def test_dip_model_rejects_fractional_epochs(tmp_path, monkeypatch):
+    import json
+
+    import model_revival_dip
+    run = tmp_path / "reports" / "r"
+    run.mkdir(parents=True)
+    (run / "metadata.json").write_text(json.dumps({"settings": {"ntrain": 1000, "k": 8}}))
+    (run / "runs.csv").write_text("algorithm,passes,batch_size,alpha0\n"
+                                  "e_means_pp,1,64,0.2\ne_means_pp,1.5,64,0.2\n")
+    monkeypatch.setattr(model_revival_dip, "ROOT", tmp_path)
+    with pytest.raises(SystemExit, match="fractional"):
+        model_revival_dip.recipes("r")
+    (run / "runs.csv").write_text("algorithm,passes,batch_size,alpha0\ne_means_pp,3.0,64,0.2\n")
+    assert model_revival_dip.recipes("r")[1] == {3: (64, 0.2)}
