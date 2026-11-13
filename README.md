@@ -103,6 +103,7 @@ bash scripts/run_speed_suite.sh --profiles medium --max-wait-min 120
 bash scripts/run_scaling_suite.sh                     # 規模を振る検証（k・n・d を 1 つずつ、約 3 時間）
 bash scripts/run_scaling_suite.sh --points "k4096 n1m" # 一部の点だけ
 bash scripts/run_speed_suite.sh --profiles "" --real "sift1m deep1m"  # 実データ（medium 規模）だけ
+bash scripts/run_speed_suite.sh --profiles "" --real "sift1m deep1m" --real-points "base k256 k4096 n800k"  # 実データで k・n を 1 つずつ変更
 bash scripts/run_night_suite.sh                       # 未計測の夜間課題を順に（下記）
 ```
 
