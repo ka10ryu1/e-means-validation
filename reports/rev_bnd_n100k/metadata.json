@@ -1,0 +1,77 @@
+{
+  "run_name": "rev_bnd_n100k",
+  "command": [
+    "python",
+    "diagnose_revival.py",
+    "--profile",
+    "medium",
+    "--threads",
+    "4",
+    "--snapshots",
+    "--thresholds",
+    "0.01",
+    "0",
+    "--kmeans-niter",
+    "0",
+    "--dataset",
+    "imbalanced",
+    "--imbalance-exponent",
+    "1.3",
+    "--ntrain",
+    "100000",
+    "--run-name",
+    "rev_bnd_n100k"
+  ],
+  "started_note": "quality-only diagnostic; no timing recorded",
+  "profile": "medium",
+  "settings": {
+    "ntrain": 100000,
+    "ntest": 10000,
+    "dim": 64,
+    "k": 1024
+  },
+  "settings_overrides": {
+    "ntrain": 100000
+  },
+  "dataset": "imbalanced",
+  "imbalance_exponent": 1.3,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "epochs": [
+    1,
+    3,
+    10
+  ],
+  "thresholds": [
+    0.01,
+    0.0
+  ],
+  "warmup_checks": [
+    0
+  ],
+  "snapshots": true,
+  "batch_law": "auto",
+  "kmeans_niter": 0,
+  "threads": 4,
+  "data_seed": 20261111,
+  "finished_at": "2026-11-13T03:14:44+00:00",
+  "faiss_version": "1.16.0",
+  "numpy_version": "2.4.6",
+  "repo_commit": "56d8eceb9a01a728cec6a7f50c4baa21e89f7dc5",
+  "repo_dirty": false,
+  "e_means_source": {
+    "faiss_source_path": "faiss-src/contrib/e_means",
+    "faiss_source_sha": "ddc768060c42e9627b6bf22123fe7e207c9a6efc",
+    "faiss_source_pinned_sha": "ddc768060c42e9627b6bf22123fe7e207c9a6efc",
+    "faiss_source_matches_pin": true,
+    "faiss_source_e_means_dirty": false,
+    "e_means_py_sha256": "ed83831f538d36d9c977646d79a9471aa8f4e52828b9dfff7ef02739404f8bfb",
+    "bundled_wheel_e_means_present": true,
+    "bundled_wheel_e_means_identical": true
+  }
+}
