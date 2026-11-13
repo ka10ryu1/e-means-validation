@@ -133,3 +133,19 @@ def test_dip_model_limits():
     assert p_dip(20000, 64, 512, 0.3, 1, 2000, 0.01, 50, rng) == 0.0
     assert r50([10, 20], [1.0, 0.0]) == pytest.approx(np.sqrt(200))
     assert r50([10, 20], [0.4, 0.0]) is None
+
+
+def test_dip_model_rejects_fractional_epochs(tmp_path, monkeypatch):
+    import json
+
+    import model_revival_dip
+    run = tmp_path / "reports" / "r"
+    run.mkdir(parents=True)
+    (run / "metadata.json").write_text(json.dumps({"settings": {"ntrain": 1000, "k": 8}}))
+    (run / "runs.csv").write_text("algorithm,passes,batch_size,alpha0\n"
+                                  "e_means_pp,1,64,0.2\ne_means_pp,1.5,64,0.2\n")
+    monkeypatch.setattr(model_revival_dip, "ROOT", tmp_path)
+    with pytest.raises(SystemExit, match="fractional"):
+        model_revival_dip.recipes("r")
+    (run / "runs.csv").write_text("algorithm,passes,batch_size,alpha0\ne_means_pp,3.0,64,0.2\n")
+    assert model_revival_dip.recipes("r")[1] == {3: (64, 0.2)}

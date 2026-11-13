@@ -7,7 +7,8 @@ The mass follows the official update N = (1 - a) N + a n_j from the initial
 2**-16, with the official cosine schedule (a0 -> 0.1 a0), and is compared
 with the mean mass (total / k, updated the same way from the batch sizes) at
 every 5th step. Batch size B and a0 are read from reports/<run>/runs.csv, n
-and k from metadata.json. No faiss, no timing; numpy only.
+and k from metadata.json. Whole epochs only: a run with a fractional epoch
+budget is rejected. No faiss, no timing; numpy only.
 
 Prints, per run and number of epochs, P(mass ever below thr x mean at a check)
 for a grid of blob sizes, and r50 (size at which that probability is 0.5,
@@ -72,9 +73,16 @@ def recipes(run):
     out = {}
     with open(report / "runs.csv", newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
-            if row["algorithm"] == "e_means_pp":
-                out.setdefault(int(float(row["passes"])),
-                               (int(float(row["batch_size"])), float(row["alpha0"])))
+            if row["algorithm"] != "e_means_pp":
+                continue
+            passes = float(row["passes"])
+            if not passes.is_integer():
+                # The official fractional schedule (a partial epoch before the
+                # last full one) is not modelled; refuse rather than round.
+                raise SystemExit(f"{run}: fractional epoch budget {passes:g} is not "
+                                 "supported by this model (whole epochs only)")
+            out.setdefault(int(passes),
+                           (int(float(row["batch_size"])), float(row["alpha0"])))
     return meta["settings"], out
 
 

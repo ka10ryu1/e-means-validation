@@ -184,6 +184,8 @@ $P --ntrain 800000 --run-name rev_bnd_n800k
 uv run python model_revival_dip.py rev_bnd_n50k_k256 rev_bnd_n100k rev_low_imb13 rev_bnd_n400k rev_bnd_n800k rev_bnd_quality --sims 2000 --seed 0
 ```
 
+乱数は全実行で共有している。表の値は、この順番で 6 実行をまとめて流したときのものである。実行を 1 つずつ流すと、試行のばらつきの範囲で値が少し変わる（例: n=800k 単独で 27.5 / 32.5 / 30.9）。
+
 結果 1・3・4 の集計（r50 のロジスティック当てはめ、区間別の割合、最初の判定、未被覆の差）は、pandas を使う一時スクリプトで行い、リポジトリには含めていない。
 
 ## 次の検証候補
