@@ -88,4 +88,5 @@ $P --dataset separated --run-name rev_snap_sep
 ## 次の検証候補
 
 - 閾値を 0.001〜0.05 で細かく振る（findings-imbalanced.md の候補を継続）。本調査からは、閾値を下げると「一度でも下回る」ブロブの範囲も下がると予想される。ただし未検証である。
+  - → 掃引は findings-imbalanced.md で実施。範囲は下がったが、点の少ないブロブでは止まらなかった（[findings-revival-lowthr.md](findings-revival-lowthr.md)）。学習点 10 点以下のブロブの唯一の重心は、31〜48% が平均の 0.001 倍を一度は下回った。
 - 判定を「連続して下回ったときだけ」にした場合の効果（本リポジトリの改変になる）。仕組みの確認としてのみ扱う。
